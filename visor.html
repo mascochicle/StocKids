@@ -320,8 +320,8 @@
 </div>
 
 <script>
-/* ===== cartera.json horneado, 0 KB ===== */
-const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","instrumento":"SPYL N","movimientos":[]};
+/* ===== cartera.json horneado, 1 KB ===== */
+const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 16-ago-2026 dentro de la app de GBM que SPYL N cotizaba 3.71% arriba de su valor real, mueve la décima parte de dinero que VUAA N, y su precio de ese día ERA su máximo de 52 semanas. VUAA N pegó al 0.17%. Ver CLAUDE.md.","instrumento":"VUAA N","movimientos":[]};
 </script>
 <script>
 /* ===== visor.json horneado, 52 KB ===== */
@@ -1093,7 +1093,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260816-1201';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260816-1229';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
