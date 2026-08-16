@@ -200,6 +200,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="StocKids">
 <link rel="apple-touch-icon" href="icon-192.png">
+<!-- Sin esto el navegador no muestra ícono en la pestaña ni en un marcador: solo lo veía
+     Android al instalarla. Con dos apps hermanas, poder distinguirlas también fuera de la
+     pantalla de inicio importa. -->
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 
 
 <header>
@@ -1110,7 +1114,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260816-1351';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260816-1402';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
