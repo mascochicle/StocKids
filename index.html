@@ -351,6 +351,9 @@
     <div class="cuenta" id="cuenta"></div>
   </header>
   <main id="vista"></main>
+  <!-- Vive fuera de las vistas: si se repintara con ellas, el diálogo de archivos del
+       teléfono se quedaría hablándole a un elemento que ya no existe. -->
+  <input type="file" id="archivo" accept=".json,application/json" hidden>
   <nav>
     <button data-ir="cartera" class="puesto"><span class="icono">◈</span>Mi dinero</button>
     <button data-ir="mercado"><span class="icono">≡</span>La bolsa</button>
@@ -1554,6 +1557,8 @@ let fichaDeLaVentana = null;
 /* Si ya tocó "Empezar de nuevo" una vez. Se olvida al salir de Ajustes: borrar meses de
    juego no puede quedar armado esperando un toque distraído. */
 let confirmandoBorrar = false;
+/* Lo que trae el archivo que acaba de escoger, o su error. Null cuando no hay nada a medias. */
+let importando = null;
 
 /*
  * El círculo del logo. Si la empresa trae imagen, va la imagen; si no, un círculo dibujado
@@ -1616,7 +1621,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0900';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0912';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1650,6 +1655,14 @@ function cargar() {
 function guardar() {
   if (ESPIA !== null) return;
   localStorage.setItem(CLAVE, JSON.stringify(estado));
+}
+
+/* Borrar la partida guardada. ⚠️ Pasa por la MISMA regla que `guardar()`: en vista previa no
+   se escribe NADA, y borrar es escribir. Sin esto, asomarse a marzo 2020 y tocar el botón de
+   reiniciar le borraba la partida de verdad. */
+function borrarGuardado() {
+  if (ESPIA !== null) return;
+  localStorage.removeItem(CLAVE);
 }
 
 const CENTAVO_MONTO = 0.01;
@@ -2002,6 +2015,97 @@ function tiempoJugado() {
   return `${meses} ${meses === 1 ? 'mes' : 'meses'}`;
 }
 
+/* --- respaldos ------------------------------------------------------------ */
+
+/*
+ * Bajar un archivo desde la app. El navegador lo deja en Descargas y de ahí Android lo
+ * comparte a Drive o a donde sea con dos toques. Guardarlo directo en Drive pediría llaves
+ * de Google y una pantalla de consentimiento, y la app dejaría de ser un archivo suelto sin
+ * dependencias — no paga.
+ */
+function bajarArchivo(nombre, contenido, tipo) {
+  const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const hoyISO = () => new Date().toISOString().slice(0, 10);
+const parteDelNombre = () =>
+  (estado.nombre || 'partida').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+/* El respaldo: es LITERALMENTE lo que se guarda, más un sello para saber de cuándo es. */
+function respaldo() {
+  return JSON.stringify({
+    app: 'StocKids', version: SK_VER, guardado: new Date().toISOString(),
+    partida: estado,
+  }, null, 2);
+}
+
+function guardarRespaldo() {
+  bajarArchivo(`stockids-${parteDelNombre()}-${hoyISO()}.json`,
+               respaldo(), 'application/json');
+}
+
+/*
+ * Los movimientos en CSV, para abrirlos en Excel. Separador de COMA y punto decimal, que es
+ * lo que espera Excel en México; y con marca de orden de bytes al principio, si no los
+ * acentos salen rotos.
+ */
+function movimientosCSV(dia) {
+  const filas = [['fecha_bolsa', 'empresa', 'ticker', 'operacion',
+                  'monto_usd', 'precio_usd', 'acciones']];
+  for (const m of [...estado.movimientos].sort((a, b) => a.dia - b.dia)) {
+    const e = DATOS.empresas.find(x => x.ticker === m.ticker);
+    filas.push([DATOS.fecha(m.dia), (e ? e.nombre : m.ticker).replace(/,/g, ''), m.ticker,
+                m.tipo, m.monto.toFixed(2), m.precio.toFixed(2), m.acciones.toFixed(6)]);
+  }
+  // El resumen de hoy al final: sirve para cuadrar contra lo que dice la app.
+  const foto = Cartera.calcular(estado, DATOS, dia);
+  filas.push([], ['al dia', DATOS.fecha(dia)],
+             ['aportado', foto.aportado.toFixed(2)],
+             ['invertido', foto.enEmpresas.toFixed(2)],
+             ['sin invertir', foto.efectivo.toFixed(2)],
+             ['dividendos cobrados', foto.dividendos.toFixed(2)],
+             ['total', foto.total.toFixed(2)]);
+  // La marca de orden de bytes al principio es lo que hace que Excel abra el archivo en
+  // UTF-8 y no salgan los acentos rotos. Los saltos van en CRLF, que es lo que espera.
+  return '﻿' + filas.map(f => f.join(',')).join('\r\n');
+}
+
+/* Revisa un respaldo antes de dejarlo entrar. Un archivo cualquiera no puede dejar la app
+   inservible: si algo no cuadra, se dice qué y no se toca nada. */
+function revisarRespaldo(texto) {
+  let crudo;
+  try { crudo = JSON.parse(texto); }
+  catch (e) { return { error: 'Ese archivo no es un respaldo de StocKids.' }; }
+
+  const p = crudo && (crudo.partida || crudo);
+  if (!p || typeof p.ancla !== 'number' || !Array.isArray(p.movimientos))
+    return { error: 'El archivo no trae una partida adentro.' };
+  if (p.ancla > Date.now() + 86400000)
+    return { error: 'El respaldo dice que empezó en el futuro. Algo está mal.' };
+
+  for (const m of p.movimientos) {
+    if (!m || typeof m.dia !== 'number' || m.dia < 0 || m.dia >= DATOS.n)
+      return { error: 'Hay un movimiento con una fecha que no existe.' };
+    if (!DATOS.empresas.some(e => e.ticker === m.ticker))
+      return { error: `El respaldo tiene una empresa que ya no está: ${m.ticker}.` };
+    if (!(m.monto > 0) || !(m.acciones > 0) || !(m.precio > 0))
+      return { error: 'Hay un movimiento con cantidades imposibles.' };
+  }
+  return { partida: {
+    ancla: p.ancla,
+    diaTope: typeof p.diaTope === 'number' ? p.diaTope : -1,
+    nombre: limpiarNombre(p.nombre) || 'Sin nombre',
+    movimientos: p.movimientos,
+  }, guardado: crudo.guardado };
+}
+
 /* --- vista: ajustes ------------------------------------------------------ */
 
 function pintarAjustes(main, r) {
@@ -2040,6 +2144,37 @@ function pintarAjustes(main, r) {
       <p style="margin-top:9px">Todo vive en este teléfono y no sale de aquí.</p>
     </div>
 
+    <div class="titulo">Respaldo</div>
+    <div class="ajuste">
+      <h3>Guardar una copia</h3>
+      <p>Baja un archivo con tu partida. Queda en <b>Descargas</b>, y de ahí lo puedes
+        mandar a Drive o a WhatsApp.</p>
+      <button class="ancho" data-copia="json">Guardar respaldo</button>
+      <button class="ancho" data-copia="csv">Movimientos para Excel</button>
+      <p style="margin-top:9px">El <b>.json</b> sirve para recuperar la partida.
+        El <b>.csv</b> es para abrirlo y revisar cada compra y cada venta.</p>
+    </div>
+
+    <div class="ajuste">
+      <h3>Recuperar un respaldo</h3>
+      ${importando
+        ? (importando.error
+          ? `<p class="aviso_borrar"><b>No se pudo:</b> ${escapar(importando.error)}</p>
+             <button class="ancho" data-importar="cancelar">Entendido</button>`
+          : `<p class="aviso_borrar">Ese respaldo es de
+               <b>${escapar(importando.partida.nombre)}</b>, con
+               <b>${importando.partida.movimientos.length}</b> movimientos.
+               Si lo metes, <b>se pierde la partida de ahora</b>
+               (${estado.movimientos.length} movimientos).</p>
+             <div class="acciones apiladas">
+               <button class="boton comprar" data-importar="si">Sí, recuperar este</button>
+               <button class="boton vender" data-importar="cancelar">Cancelar</button>
+             </div>`)
+        : `<p>Si tienes un archivo <b>.json</b> de StocKids, lo puedes volver a meter aquí.
+             Reemplaza lo que haya ahora.</p>
+           <button class="ancho" data-importar="abrir">Buscar un archivo</button>`}
+    </div>
+
     <div class="ajuste peligro">
       <h3>Empezar de nuevo</h3>
       ${confirmandoBorrar ? `
@@ -2048,13 +2183,15 @@ function pintarAjustes(main, r) {
             ? 'movimiento' : 'movimientos'} y los
           <b>${dinero(foto.total)}</b> que tienes ahora${
             tiempoJugado() ? `, más los <b>${tiempoJugado()}</b> que llevas jugando` : ''}.
-          Vuelve a enero de 2015 con $1,000. <b>No se puede deshacer.</b></p>
+          Vuelve a enero de 2015 con $1,000. <b>No se puede deshacer</b> desde aquí:
+          el respaldo queda en Descargas.</p>
         <div class="acciones" style="padding:0">
           <button class="boton vender" data-borrar="no">Mejor no</button>
           <button class="boton borrar" data-borrar="si">Sí, borrar todo</button>
         </div>`
-      : `<p>Vuelve al primer día con $1,000 y sin nada comprado. Tu nombre y todo lo que
-           hayas hecho se borran para siempre.</p>
+      : `<p>Vuelve al primer día con $1,000 y sin nada comprado. Antes de borrar se baja
+           <b>un respaldo a Descargas</b> por si te arrepientes — pero recuperarlo es cosa
+           de tu papá, no de un botón.</p>
          <button class="ancho suave" data-borrar="quiza">Empezar de nuevo</button>`}
     </div>`;
 
@@ -2405,11 +2542,30 @@ document.addEventListener('click', (ev) => {
   const t = ev.target.closest('[data-ir],[data-ficha],[data-volver],[data-comprar],' +
                               '[data-vender],[data-cerrar],[data-atajo],[data-hacer],' +
                               '[data-nombre],[data-vista],[data-tema],[data-borrar],' +
-                              '[data-nocerrar]');
+                              '[data-copia],[data-importar],[data-nocerrar]');
   if (!t) return;
 
   if (t.dataset.nocerrar) return;
   if (t.dataset.nombre)  { hoja = { tipo: 'nombre' }; }
+  if (t.dataset.copia) {
+    if (t.dataset.copia === 'json') guardarRespaldo();
+    else bajarArchivo(`stockids-movimientos-${parteDelNombre()}-${hoyISO()}.csv`,
+                      movimientosCSV(dia), 'text/csv;charset=utf-8');
+    return;                                   // bajar un archivo no cambia nada que repintar
+  }
+  if (t.dataset.importar) {
+    if (t.dataset.importar === 'abrir') { $('#archivo').click(); return; }
+    if (t.dataset.importar === 'cancelar') importando = null;
+    else if (importando && importando.partida) {
+      estado = importando.partida;
+      importando = null;
+      guardar();
+      diaPintado = -1;
+      vista = 'cartera';
+      pintar();                  // si cambias el estado, repinta TÚ (trampa #3)
+      return;
+    }
+  }
   if (t.dataset.borrar) {
     if (t.dataset.borrar === 'quiza') confirmandoBorrar = true;
     else if (t.dataset.borrar === 'no') confirmandoBorrar = false;
@@ -2417,9 +2573,15 @@ document.addEventListener('click', (ev) => {
        estuvieran en el mismo sitio, un doble toque rápido pasaría por las dos sin leer. */
     else if (t.dataset.borrar === 'si') hoja = { tipo: 'borrar' };
     else if (t.dataset.borrar === 'ahora') {
+      /* Un respaldo a Descargas ANTES de borrar. A propósito como archivo y no como
+         "deshacer" adentro de la app: si recuperar fuera un toque, el botón de reiniciar se
+         volvería un botón de deshacer pérdidas, que es justo lo que no queremos enseñar.
+         Así el papá lo puede rescatar y el niño no lo va a hacer de pasada. */
+      try { guardarRespaldo(); } catch (e) { /* si el navegador no deja, se borra igual */ }
+
       /* Aquí sí se borra. El TEMA se queda: es una preferencia, no parte de la partida, y
          devolverle el fondo blanco a alguien que lo puso en noche sería una grosería. */
-      localStorage.removeItem(CLAVE);
+      borrarGuardado();
       estado = null;
       confirmandoBorrar = false;
       hoja = null;
@@ -2431,7 +2593,7 @@ document.addEventListener('click', (ev) => {
     }
   }
   // Salir de Ajustes desarma la confirmación: no puede quedar esperando un toque distraído.
-  if (t.dataset.ir && t.dataset.ir !== 'ajustes') confirmandoBorrar = false;
+  if (t.dataset.ir && t.dataset.ir !== 'ajustes') { confirmandoBorrar = false; importando = null; }
   if (t.dataset.tema) {
     localStorage.setItem(CLAVE_TEMA, t.dataset.tema);
     temaVisto = sistemaOscuro();
@@ -2490,6 +2652,21 @@ document.addEventListener('input', (ev) => {
   if (boton) boton.disabled = !(monto > 0);
   const previo = $('#previo');
   if (previo) previo.innerHTML = textoPrevio(comprando, monto, px, e, foto.efectivo);
+});
+
+/* El archivo que escoge del teléfono. Se lee, se revisa y se PREGUNTA: meterlo pisa la
+   partida de ahora, así que no puede pasar solo por haber tocado un archivo. */
+$('#archivo').addEventListener('change', async (ev) => {
+  const f = ev.target.files && ev.target.files[0];
+  ev.target.value = '';                       // para poder volver a escoger el mismo
+  if (!f || !estado) return;
+  try {
+    importando = revisarRespaldo(await f.text());
+  } catch (e) {
+    importando = { error: 'No se pudo leer el archivo.' };
+  }
+  vista = 'ajustes';
+  pintar();
 });
 
 /* --- el latido ------------------------------------------------------------ */
