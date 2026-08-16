@@ -501,6 +501,12 @@ const Datos = (() => {
     return {
       ...crudo,
       dias, baseMs, empresas, arranque,
+      // Años de bolsa por año real. Viaja CON los precios para que no se puedan desparejar:
+      // los de 1980 con el ritmo de casa darían una partida de 3.9 años en vez de 6.7, sin
+      // avisar. Las partidas viejas no lo traen, y ahí manda el de casa.
+      ritmo: crudo.ritmo || 12,
+      // Contra qué se mide "sin escoger nada". Depende de la época: el SPY no existía en 1980.
+      referencia: crudo.referencia || 'SPY',
       n: total,
       fechaMs: (i) => baseMs + dias[i] * MS_DIA,
       fecha: (i) => new Date(baseMs + dias[i] * MS_DIA).toISOString().slice(0, 10),
@@ -583,9 +589,34 @@ const Datos = (() => {
 const Tiempo = (() => {
   'use strict';
 
-  const RITMO = 12;                       // años de bolsa por año real
   const MS_DIA = 24 * 60 * 60 * 1000;
-  const MS_POR_DIA_BOLSA = MS_DIA / RITMO;   // 2 horas reales por día de bolsa
+
+  /*
+   * Años de bolsa por año real. Es EL número que define el producto entero: con 12 el niño
+   * vive un año de mercado por cada mes suyo.
+   *
+   * Se puede cambiar porque hay DOS configuraciones (16-ago-2026):
+   *
+   *   ritmo 12, desde 2015  la partida de su hijo — 18 años de historia en 1.5 años
+   *   ritmo  7, desde 1980  la comercial — 46 años de historia en 6.7 años, de los 11 a los 18
+   *
+   * El 7 no salió de redondear: con él las once caídas grandes del S&P quedan repartidas una
+   * cada siete meses, la primera en el mes 1 y la de 2008 a los ~15 años del niño.
+   *
+   * ⚠️ El ritmo viaja DENTRO del archivo de datos (`ritmo` en precios.json) y la app lo aplica
+   * al arrancar. Así no se pueden desparejar: unos precios que empiezan en 1980 con el ritmo
+   * de la partida de 2015 darían una partida de 3.9 años en vez de 6.7, sin avisar.
+   */
+  const RITMO_DE_CASA = 12;
+  let ritmo = RITMO_DE_CASA;
+  let msPorDiaBolsa = MS_DIA / ritmo;      // con 12: 2 horas reales por día de bolsa
+
+  function usarRitmo(n) {
+    if (!(n > 0)) throw new Error(`ritmo inválido: ${n}`);
+    ritmo = n;
+    msPorDiaBolsa = MS_DIA / n;
+    return ritmo;
+  }
 
   /* El último índice cuyo día ya pasó. Búsqueda binaria: se llama en cada latido. */
   function ultimoDiaHasta(dias, corrido) {
@@ -621,7 +652,7 @@ const Tiempo = (() => {
     const ultimo = dias.length - 1;
     const transcurrido = Math.max(0, ahoraMs - anclaMs);   // ancla en el futuro => día 0
     // El tiempo se cuenta desde el día del ARRANQUE, no desde el principio de los datos.
-    const corrido = dias[arranque] + transcurrido / MS_POR_DIA_BOLSA;
+    const corrido = dias[arranque] + transcurrido / msPorDiaBolsa;
 
     const derivado = Math.max(arranque, ultimoDiaHasta(dias, corrido));
     const dia = Math.min(Math.max(derivado, diaTope), ultimo);
@@ -634,11 +665,11 @@ const Tiempo = (() => {
       msParaSiguiente = null;
     } else if (relojAtrasado) {
       avance = 0;                                          // congelado hasta que lo alcance
-      msParaSiguiente = Math.max(0, (dias[dia + 1] - corrido) * MS_POR_DIA_BOLSA);
+      msParaSiguiente = Math.max(0, (dias[dia + 1] - corrido) * msPorDiaBolsa);
     } else {
       const de = dias[dia], a = dias[dia + 1];
       avance = (corrido - de) / (a - de);
-      msParaSiguiente = (a - corrido) * MS_POR_DIA_BOLSA;
+      msParaSiguiente = (a - corrido) * msPorDiaBolsa;
     }
 
     return {
@@ -668,7 +699,15 @@ const Tiempo = (() => {
     return resto ? `${h} h ${resto} min` : `${h} h`;
   }
 
-  return { RITMO, MS_POR_DIA_BOLSA, calcular, ultimoDiaHasta, comoTexto, cuantoFalta };
+  /* Captadores y no valores: si fueran valores se congelarían con el ritmo de casa y
+     `Tiempo.MS_POR_DIA_BOLSA` mentiría en cuanto alguien llamara a `usarRitmo`. Las pruebas
+     lo leen como propiedad, así que siguen funcionando igual. */
+  return {
+    get RITMO() { return ritmo; },
+    get MS_POR_DIA_BOLSA() { return msPorDiaBolsa; },
+    RITMO_DE_CASA, usarRitmo,
+    calcular, ultimoDiaHasta, comoTexto, cuantoFalta,
+  };
 })();
 
 </script>
@@ -921,7 +960,13 @@ const Cartera = (() => {
    * momentos, sin escoger nada. Es lo único que contesta "¿me fue mejor que si no hubiera
    * hecho nada?". También empieza en `datos.arranque`.
    */
-  function serieReferencia(datos, hastaDia, ticker = 'SPY') {
+  /*
+   * ⚠️ El ticker sale de los DATOS, no de aquí. En la configuración de 1980 el SPY todavía no
+   * existía (nació en 1993) y esta función devolvía NaN: la gráfica se veía bien, la leyenda
+   * seguía prometiendo "sin escoger nada", y la línea simplemente no estaba. Allá la vara es
+   * VFINX, el fondo índice de Vanguard, que arranca el mismo día que la partida.
+   */
+  function serieReferencia(datos, hastaDia, ticker = datos.referencia || 'SPY') {
     const serie = [];
     let acciones = 0, suelto = 0, previas = -1;
     for (let d = datos.arranque; d <= hastaDia; d++) {
@@ -1595,6 +1640,11 @@ const LOGOS = HORNEADO_LOGOS;
 const ULTIMO = DATOS.n - 1;
 const ARRANQUE = DATOS.arranque;      // 2015: lo de antes es historia, no partida
 
+/* El ritmo viene DENTRO de los precios, no clavado en el motor: hay dos configuraciones y
+   cada una trae la suya. Aplicarlo aquí, antes del primer `reloj()`, es lo que evita que
+   unos precios de 1980 corran con el ritmo de la partida de 2015. */
+Tiempo.usarRitmo(DATOS.ritmo);
+
 const fechaDe = (i) => new Date(DATOS.fechaMs(i));
 
 /* Qué vista de la gráfica está puesta. No se guarda: es del momento, no de la partida. */
@@ -1676,7 +1726,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-1258';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-1351';    // sello para saber si ya llegó la versión nueva
 
 /* A dónde va la pestaña "Visor" — el dinero de VERDAD, que es otra página.
    ⚠️ En desarrollo los archivos están en carpetas distintas y publicados quedan lado a lado,
