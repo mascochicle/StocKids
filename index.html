@@ -105,8 +105,12 @@
   .fila .tick { font-weight:750; font-size:16px; letter-spacing:.2px }
   .fila .quien .nombre_chico { color:var(--suave); font-size:12.5px; margin-top:1px;
      white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
-  .fila .cuanto .mueve { font-size:12.5px; font-weight:600; font-variant-numeric:tabular-nums }
-  .fila .cuanto .mueve span { opacity:.75; margin-right:5px }
+  /* El porcentaje es lo que se lee de un vistazo, así que va más grande y más fuerte que
+     el cambio en dinero. Es lo que le da el aire de app de bolsa. */
+  .fila .cuanto .mueve { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums;
+                         margin-top:2px }
+  .fila .cuanto .mueve span { font-size:12.5px; font-weight:600; opacity:.7; margin-right:6px }
+  .quieto { color:var(--suave) }
 
   .tarjetas { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:10px 14px 0 }
   .tarjeta { background:var(--panel); border:1px solid var(--borde); border-radius:14px;
@@ -131,6 +135,8 @@
   .dato i { font-style:normal; display:block; color:var(--tenue); font-size:11px;
             text-transform:uppercase; letter-spacing:.6px }
   .dato b { font-size:19px; font-weight:700; font-variant-numeric:tabular-nums }
+  .dato em { font-style:normal; font-size:13px; font-weight:600; margin-left:7px;
+             opacity:.7; font-variant-numeric:tabular-nums }
 
   .reparto { margin:14px 18px 0; padding:12px 14px; border-radius:13px; font-size:13px;
              line-height:1.45; background:rgba(240,180,41,.09);
@@ -858,7 +864,7 @@ function circulo(ticker, nombre, clase = '') {
 }
 
 const CLAVE = 'stockids.v1';
-const SK_VER = '20260815-2137';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260815-2144';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -947,19 +953,35 @@ function novedades(semana) {
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
 const dinero = Cartera.dinero;
-const conSigno = n => `${n >= 0 ? '+' : '−'}${dinero(Math.abs(n))}`;
-const pct = n => `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(1)}%`;
+/* Sin signo cuando redondea a cero: un "+0.0%" se lee como error, no como quieto. */
+const conSigno = n => `${Math.abs(n) < 0.005 ? '' : n > 0 ? '+' : '−'}${dinero(Math.abs(n))}`;
+const pct = n => `${Math.abs(n) < 0.05 ? '' : n > 0 ? '+' : '−'}${Math.abs(n).toFixed(1)}%`;
 const clase = n => n >= 0 ? 'sube' : 'baja';
 const escapar = s => String(s).replace(/[&<>"]/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/* Cambio de la semana para una empresa: lo que se movió el precio desde la anterior. */
-function cambioSemanal(e, semana) {
-  const hoy = Cartera.precio(DATOS, e.ticker, semana);
-  const antes = Cartera.precio(DATOS, e.ticker, semana - 1);
-  if (hoy === null || antes === null) return null;
-  return (hoy / antes - 1) * 100;
+/*
+ * Lo que se movió el precio desde la semana pasada, en dinero y en porcentaje.
+ *
+ * En la PRIMERA semana no hay con qué comparar, y devolver "nada" dejaba la lista sin un
+ * solo porcentaje justo el día que estrena la app — se veía a medias (lo cachó Marco el
+ * 15-ago-2026). Se devuelve cero y marcado como estreno, que además es la verdad: desde
+ * que empezó, todavía no se ha movido.
+ */
+function movimiento(ticker, semana) {
+  const hoy = Cartera.precio(DATOS, ticker, semana);
+  if (hoy === null) return null;                          // todavía no cotiza
+  const antes = semana > 0 ? Cartera.precio(DATOS, ticker, semana - 1) : null;
+  if (antes === null) return { abs: 0, pct: 0, estrena: true };
+  return { abs: hoy - antes, pct: (hoy / antes - 1) * 100, estrena: false };
 }
+
+/* Verde si sube, rojo si baja, gris si no se ha movido o si apenas estrena. */
+const colorDe = (m) =>
+  m.estrena || Math.abs(m.pct) < 0.005 ? 'quieto' : (m.pct > 0 ? 'sube' : 'baja');
+
+const pintarMovimiento = (m) => m === null ? '' :
+  `<div class="mueve ${colorDe(m)}"><span>${conSigno(m.abs)}</span>${pct(m.pct)}</div>`;
 
 /* --- la primera vez ------------------------------------------------------ */
 
@@ -1047,6 +1069,9 @@ function pintar() {
 function pintarCartera(main, semana, r) {
   const foto = Cartera.calcular(estado, DATOS, semana);
   const n = novedades(semana);
+  // El primer día no ha ganado ni perdido nada: una flechita roja por un centavo asusta
+  // sin razón, y un "(0.0%)" con flecha se lee como error.
+  const quieto = Math.abs(foto.ganancia) < 0.5;
 
   const avisos = [];
   if (n.aportacion > 0) avisos.push(`<div class="aviso dinero"><span>◆</span><div>
@@ -1066,9 +1091,10 @@ function pintarCartera(main, semana, r) {
     <div class="resumen">
       <button class="dueno" data-nombre="1">El dinero de <u>${escapar(estado.nombre)}</u></button>
       <div class="cifra" id="totalGrande">${dinero(foto.total)}</div>
-      <div class="cambio ${clase(foto.ganancia)}" id="cambioGrande">
-        ${foto.ganancia >= 0 ? '▲' : '▼'} ${dinero(Math.abs(foto.ganancia))}
-        (${pct(foto.gananciaPct)})
+      <div class="cambio ${quieto ? 'quieto' : clase(foto.ganancia)}" id="cambioGrande">
+        ${quieto ? 'Todavía sin cambios'
+          : `${foto.ganancia > 0 ? '▲' : '▼'} ${dinero(Math.abs(foto.ganancia))}
+             (${pct(foto.gananciaPct)})`}
         <small>sobre los ${dinero(foto.aportado)} que has metido</small>
       </div>
     </div>
@@ -1148,11 +1174,8 @@ function pintarMercado(main, semana) {
     <div class="titulo">Puedes comprar ${disponibles.length} cosas · tienes ${dinero(foto.efectivo)}</div>
     <div class="lista">${disponibles.map(e => {
       const px = Cartera.precio(DATOS, e.ticker, semana);
-      const antes = Cartera.precio(DATOS, e.ticker, semana - 1);
-      const cam = cambioSemanal(e, semana);
-      // "El cambio del día" en este mundo es el de la semana: hay un precio por semana.
-      const mueve = cam === null ? '' :
-        `<div class="mueve ${clase(cam)}"><span>${conSigno(px - antes)}</span>${pct(cam)}</div>`;
+      // "El cambio del día" en este mundo es el de la SEMANA: hay un precio por semana.
+      const mueve = pintarMovimiento(movimiento(e.ticker, semana));
       return `<button class="fila" data-ficha="${e.ticker}">
         ${circulo(e.ticker, e.nombre)}
         <div class="quien">
@@ -1172,7 +1195,7 @@ function pintarFicha(main, semana) {
   const foto = Cartera.calcular(estado, DATOS, semana);
   const mia = foto.posiciones.find(p => p.ticker === e.ticker);
   const px = Cartera.precio(DATOS, e.ticker, semana);
-  const cam = cambioSemanal(e, semana);
+  const m = movimiento(e.ticker, semana);
 
   // Los pagos que ya ocurrieron. Nunca los del futuro.
   const pagados = (e.dividendos || []).filter(([s]) => s <= semana);
@@ -1192,7 +1215,8 @@ function pintarFicha(main, semana) {
       <div class="datos">
         <div class="dato"><i>Precio</i><b>${dinero(px)}</b></div>
         <div class="dato"><i>Esta semana</i>
-          <b class="${cam === null ? '' : clase(cam)}">${cam === null ? '—' : pct(cam)}</b></div>
+          <b class="${colorDe(m)}">${pct(m.pct)}</b>
+          <em class="${colorDe(m)}">${conSigno(m.abs)}</em></div>
       </div>
     </div>
     <div class="lienzo"><svg class="grafica" id="lienzoFicha"></svg></div>
