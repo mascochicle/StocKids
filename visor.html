@@ -81,7 +81,7 @@
   .granTotal { font-size:40px; font-weight:800; letter-spacing:-1.8px; margin:10px 0 0;
                line-height:1.05 }
   /* Etiqueta, no cifra: chica y apagada para no competir con el número. */
-  .granTotal em { font-style:normal; font-size:13px; font-weight:700; color:var(--tenue);
+  .granTotal em { font-style:normal; font-size:17px; font-weight:700; color:var(--suave);
                   letter-spacing:.5px; margin-left:6px; vertical-align:middle }
   .cambio { font-size:14px; font-weight:700; margin-top:3px }
   .sube { color:var(--verde) } .baja { color:var(--rojo) }
@@ -121,6 +121,8 @@
                margin-bottom:1px }
   .tarjeta b { font-size:17px; font-weight:700; letter-spacing:-.3px }
   .tarjeta small { display:block; color:var(--tenue); font-size:11px; margin-top:1px }
+  .tarjeta em.moneda { font-style:normal; font-size:12.5px; font-weight:700;
+                       color:var(--suave); letter-spacing:.5px; margin-left:4px }
 
   /* --- listas --- */
   .titulo { font-size:12px; font-weight:700; color:var(--suave); text-transform:uppercase;
@@ -1127,7 +1129,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260816-1508';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260816-1515';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
@@ -1299,9 +1301,11 @@ function pintarDinero(foto, iHoy) {
           foto.titulos ? `pagó ${Visor.dinero(foto.promedio)} cada uno` : 'todavía ninguno']);
   t.push(['Cuesta hoy', Visor.dinero(PRECIO_HOY),
           FX.vivo ? `dólar de hoy: ${FX.valor.toFixed(2)}` : `dólar del ${FX.fecha}`]);
-  t.push(['Invertido', Visor.dinero(foto.valor),
+  // Con moneda, igual que el total: son las dos cifras de dinero que se leen aquí.
+  const conMon = (n) => `${Visor.dinero(n)}<em class="moneda">${MONEDA}</em>`;
+  t.push(['Invertido', conMon(foto.valor),
           `${INST.clave} en el SIC` + (FUENTE ? `, con ${FUENTE}` : '')]);
-  t.push(['Esperando', Visor.dinero(foto.efectivo),
+  t.push(['Esperando', conMon(foto.efectivo),
           foto.efectivo >= PRECIO_HOY && PRECIO_HOY > 0
             ? `alcanza para ${Math.floor(foto.efectivo / PRECIO_HOY)} más`
             : 'sin invertir']);
