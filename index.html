@@ -63,7 +63,20 @@
              margin-left:auto; overflow:hidden }
   .barrita i { display:block; height:100%; background:var(--verde); border-radius:2px }
 
+  #cuerpo { flex:1; position:relative; display:flex; min-height:0 }
   main { flex:1; padding:0 0 16px; overflow-y:auto; -webkit-overflow-scrolling:touch }
+
+  /* El "ya quedó" después de comprar o vender. Va flotando arriba del contenido para que se
+     vea sin importar dónde esté, y se quita solo a los 6 segundos. */
+  #recado { position:absolute; left:12px; right:12px; top:2px; z-index:20; pointer-events:none }
+  #recado .globo { pointer-events:auto; border-radius:14px; padding:12px 15px; font-size:13.5px;
+                   line-height:1.4; box-shadow:0 8px 24px rgba(0,0,0,.35); cursor:pointer;
+                   animation:entra .18s ease-out }
+  #recado .globo b { font-weight:750 }
+  #recado .bien { background:var(--verde); color:var(--sobreVerde) }
+  #recado .neutro { background:var(--panel2); color:var(--texto); border:1px solid var(--borde) }
+  @keyframes entra { from { opacity:0; transform:translateY(-8px) } to { opacity:1; transform:none } }
+  @media (prefers-reduced-motion: reduce) { #recado .globo { animation:none } }
 
   /* --- avisos --- */
   .aviso { margin:0 14px 10px; padding:11px 13px; border-radius:12px; font-size:13.5px;
@@ -353,7 +366,12 @@
     </div>
     <div class="cuenta" id="cuenta"></div>
   </header>
-  <main id="vista"></main>
+  <!-- El recado va DENTRO del cuerpo, no encima del encabezado: si no, tapa la fecha y el
+       contador del próximo precio justo cuando uno acaba de operar y quiere verlos. -->
+  <div id="cuerpo">
+    <div id="recado"></div>
+    <main id="vista"></main>
+  </div>
   <!-- Vive fuera de las vistas: si se repintara con ellas, el diálogo de archivos del
        teléfono se quedaría hablándole a un elemento que ya no existe. -->
   <input type="file" id="archivo" accept=".json,application/json" hidden>
@@ -1562,6 +1580,14 @@ let fichaDeLaVentana = null;
 let confirmandoBorrar = false;
 /* Lo que trae el archivo que acaba de escoger, o su error. Null cuando no hay nada a medias. */
 let importando = null;
+/* El mensaje de "listo, ya quedó" después de comprar o vender. Se borra solo. */
+let recado = null, recadoReloj = null;
+
+function decir(texto, tipo = 'bien') {
+  clearTimeout(recadoReloj);
+  recado = { texto, tipo };
+  recadoReloj = setTimeout(() => { recado = null; pintar(); }, 6000);
+}
 
 /*
  * El círculo del logo. Si la empresa trae imagen, va la imagen; si no, un círculo dibujado
@@ -1624,7 +1650,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0920';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0928';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1818,6 +1844,10 @@ function encabezadoReloj(r) {
   const barra = `<div class="barrita"><i style="width:${(r.avance * 100).toFixed(1)}%"></i></div>`;
   if (ESPIA !== null) return 'vista previa<br>el reloj no corre';
   if (r.terminado) return 'hasta aquí llega<br>la historia';
+  /* Con el trinquete frenando —el reloj del aparato se movió hacia atrás— la cuenta regresiva
+     sale absurda ("en 464 h"), porque mide contra un tiempo que ya pasó. Se dice lo que de
+     verdad ocurre en vez de un número que no significa nada. */
+  if (r.relojAtrasado) return 'el mundo espera<br>a que lo alcances';
   // En fin de semana la bolsa está cerrada: no es que la app esté trabada.
   if (r.cerrado) return 'la bolsa está<br>cerrada allá' + barra;
   return `próximo precio<br>en ${Tiempo.cuantoFalta(r.msParaSiguiente)}` + barra;
@@ -1845,6 +1875,9 @@ function pintar() {
 
   for (const b of document.querySelectorAll('nav button'))
     b.classList.toggle('puesto', b.dataset.ir === vista);
+
+  $('#recado').innerHTML = recado
+    ? `<div class="globo ${recado.tipo}" data-recado="1">${recado.texto}</div>` : '';
 
   const main = $('#vista');
   if (fichaAbierta) pintarFicha(main, dia);
@@ -2530,6 +2563,17 @@ function ejecutar(dia) {
   if (!r.ok) { hoja.error = r.error; pintar(); return; }
   estado = r.estado;
   guardar();
+
+  /* El "ya quedó". Antes la compra pasaba en silencio y uno se quedaba dudando si había
+     pasado algo. Se dice CUÁNTAS acciones y a QUÉ precio, que es lo que hay que entender. */
+  const m = r.movimiento;
+  decir(m.tipo === 'compra'
+    ? `<b>¡Listo!</b> Compraste <b>${m.acciones.toFixed(4)}</b> acciones de
+       ${escapar(e.nombre)} a ${dinero(m.precio)} cada una. Te costaron ${dinero(m.monto)}.`
+    : `<b>Vendiste</b> ${m.acciones.toFixed(4)} acciones de ${escapar(e.nombre)} a
+       ${dinero(m.precio)} cada una. Recibiste <b>${dinero(m.monto)}</b> en efectivo.`,
+    m.tipo === 'compra' ? 'bien' : 'neutro');
+
   hoja = null;
   pintar();                 // si cambias el estado, repinta TÚ (trampa #3)
 }
@@ -2545,11 +2589,12 @@ document.addEventListener('click', (ev) => {
   const t = ev.target.closest('[data-ir],[data-ficha],[data-volver],[data-comprar],' +
                               '[data-vender],[data-cerrar],[data-atajo],[data-hacer],' +
                               '[data-nombre],[data-vista],[data-tema],[data-borrar],' +
-                              '[data-copia],[data-importar],[data-nocerrar]');
+                              '[data-copia],[data-importar],[data-recado],[data-nocerrar]');
   if (!t) return;
 
   if (t.dataset.nocerrar) return;
   if (t.dataset.nombre)  { hoja = { tipo: 'nombre' }; }
+  if (t.dataset.recado) { clearTimeout(recadoReloj); recado = null; pintar(); return; }
   if (t.dataset.copia) {
     if (t.dataset.copia === 'json') guardarRespaldo();
     else bajarArchivo(`stockids-movimientos-${parteDelNombre()}-${hoyISO()}.csv`,
