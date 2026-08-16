@@ -169,6 +169,34 @@
 
   .sello_ver { text-align:center; color:#2a3442; font-size:10px; padding:10px 0 4px;
                letter-spacing:.5px; user-select:none }
+
+  /* --- de quién es esto --- */
+  /* Nada de flex aquí: con flex, "El dinero de" y el nombre son dos cajas y se parten en
+     dos renglones. Texto normal y el lápiz pegado con ::after. */
+  .dueno { background:none; border:none; padding:0 0 2px; font:inherit; font-size:12.5px;
+           font-weight:600; color:var(--suave); letter-spacing:.2px; cursor:pointer;
+           text-align:left; display:block }
+  .dueno u { text-decoration:none; color:var(--texto) }
+  .dueno::after { content:' ✎'; font-size:10px; color:var(--tenue) }
+
+  /* --- la bienvenida: solo la primera vez --- */
+  .bienvenida { flex:1; display:flex; flex-direction:column; justify-content:center;
+                padding:28px 26px calc(28px + env(safe-area-inset-bottom)); gap:0 }
+  .bienvenida .logo { font-size:34px; font-weight:800; letter-spacing:-1.2px }
+  .bienvenida .logo span { color:var(--verde) }
+  .bienvenida .trato { color:var(--suave); font-size:14.5px; line-height:1.6; margin:14px 0 0 }
+  .bienvenida .trato b { color:var(--texto); font-weight:650 }
+  .bienvenida label { display:block; margin:26px 0 8px; font-size:13px; font-weight:700;
+                      letter-spacing:.6px; text-transform:uppercase; color:var(--tenue) }
+  .bienvenida input { width:100%; background:var(--panel); border:1px solid var(--borde);
+                      border-radius:14px; padding:15px 16px; color:var(--texto); font:inherit;
+                      font-size:20px; font-weight:700; outline:none }
+  .bienvenida input:focus { border-color:var(--verde) }
+  .bienvenida .aguas { color:var(--tenue); font-size:12px; line-height:1.5; margin:12px 0 0 }
+  .bienvenida button { margin-top:20px; width:100%; height:52px; border-radius:15px;
+                       border:none; background:var(--verde); color:#06251a; font:inherit;
+                       font-size:16px; font-weight:800; cursor:pointer }
+  .bienvenida button:disabled { opacity:.35; cursor:default }
 </style>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -791,7 +819,7 @@ const SEMANAS = DATOS.semanas;
 const ULTIMA = SEMANAS.length - 1;
 
 const CLAVE = 'stockids.v1';
-const SK_VER = '20260815-2049';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260815-2108';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -802,16 +830,38 @@ const ESPIA = new URLSearchParams(location.search).get('semana')
 
 /* --- lo que se guarda --------------------------------------------------- */
 
+/* Devuelve null la primera vez: ahí va la bienvenida, y el reloj NO ha arrancado todavía.
+   Importa que arranque cuando él diga "empezar" y no cuando alguien abra la página de
+   curioso: si no, el mundo le corre semanas que nunca vio. */
 function cargar() {
   try {
     const g = JSON.parse(localStorage.getItem(CLAVE));
     if (g && typeof g.ancla === 'number' && Array.isArray(g.movimientos)) return g;
   } catch (e) { /* si está corrupto, se empieza de nuevo */ }
-  return Cartera.nueva(Date.now());
+  return null;
 }
-function guardar() { localStorage.setItem(CLAVE, JSON.stringify(estado)); }
+/* En vista previa NO se guarda nada, ni siquiera una compra: asomarse a marzo 2020 no
+   puede ensuciar la partida de verdad. */
+function guardar() {
+  if (ESPIA !== null) return;
+  localStorage.setItem(CLAVE, JSON.stringify(estado));
+}
+
+const NOMBRE_MAX = 18;
+
+/* Quita espacios de más y pone mayúscula inicial a cada palabra, PERO no toca el resto:
+   "diego" -> "Diego", "juan carlos" -> "Juan Carlos", y "JUAN" se queda "JUAN". Bajar todo
+   a minúsculas primero arruinaría nombres como "McKenzie". */
+const limpiarNombre = (s) => String(s || '')
+  .replace(/\s+/g, ' ').trim().slice(0, NOMBRE_MAX)
+  .replace(/(^|\s)(\p{L})/gu, (_, antes, letra) => antes + letra.toUpperCase());
 
 let estado = cargar();
+
+/* En vista previa sin partida empezada se arma una de mentiras, para poder asomarse a
+   cualquier época sin tener que estrenar el juego. Como `guardar()` no escribe en modo
+   espía, esta cartera se muere al cerrar la pestaña. */
+if (!estado && ESPIA !== null) estado = { ...Cartera.nueva(Date.now()), nombre: 'Vista previa' };
 let vista = 'cartera';
 let fichaAbierta = null;
 let hoja = null;              // {tipo:'comprar'|'vender', ticker, monto, error}
@@ -872,9 +922,48 @@ function cambioSemanal(e, semana) {
   return (hoy / antes - 1) * 100;
 }
 
+/* --- la primera vez ------------------------------------------------------ */
+
+function pintarBienvenida() {
+  document.querySelector('header').style.display = 'none';
+  document.querySelector('nav').style.display = 'none';
+  $('#vista').innerHTML = `
+    <div class="bienvenida">
+      <div class="logo">Stoc<span>Kids</span></div>
+      <p class="trato">Vas a empezar con <b>$1,000</b> en enero de <b>2015</b>, y la bolsa va
+      a correr sola: <b>cada mes que pase aquí afuera es un año allá adentro</b>. Un precio
+      nuevo cada 14 horas, con lo que de verdad pasó.</p>
+      <p class="trato">No hay prisa. Esto no se gana comprando y vendiendo rápido.</p>
+      <label for="nombreInput">¿Cómo te llamas?</label>
+      <input id="nombreInput" type="text" autocomplete="given-name" enterkeyhint="go"
+             maxlength="${NOMBRE_MAX}" placeholder="Tu nombre" autocapitalize="words">
+      <p class="aguas">Se queda en este teléfono. Nadie más lo ve, y no se manda a ningún lado.</p>
+      <button id="empezar" disabled>Empezar</button>
+    </div>`;
+
+  const caja = $('#nombreInput'), boton = $('#empezar');
+  // Se conectan a mano y NO se repinta al teclear: repintar le tumbaría el teclado.
+  const revisar = () => { boton.disabled = limpiarNombre(caja.value).length < 2; };
+  caja.addEventListener('input', revisar);
+  caja.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') boton.click(); });
+  boton.addEventListener('click', () => {
+    const nombre = limpiarNombre(caja.value);
+    if (nombre.length < 2) return;
+    // AQUÍ arranca el mundo, no cuando se abrió la página.
+    estado = { ...Cartera.nueva(Date.now()), nombre };
+    guardar();
+    document.querySelector('header').style.display = '';
+    document.querySelector('nav').style.display = '';
+    pintar();                    // si cambias el estado, repinta TÚ (trampa #3)
+  });
+  caja.focus();
+}
+
 /* --- pintar -------------------------------------------------------------- */
 
 function pintar() {
+  if (!estado) { pintarBienvenida(); return; }
+
   const r = reloj();
   adelantarTrinquete(r);
   const semana = r.semana;
@@ -919,6 +1008,7 @@ function pintarCartera(main, semana, r) {
   main.innerHTML = `
     ${avisos.join('')}
     <div class="resumen">
+      <button class="dueno" data-nombre="1">El dinero de <u>${escapar(estado.nombre)}</u></button>
       <div class="cifra" id="totalGrande">${dinero(foto.total)}</div>
       <div class="cambio ${clase(foto.ganancia)}" id="cambioGrande">
         ${foto.ganancia >= 0 ? '▲' : '▼'} ${dinero(Math.abs(foto.ganancia))}
@@ -1079,6 +1169,8 @@ function pintarHoja(semana) {
   if (viejo) viejo.remove();
   if (!hoja) return;
 
+  if (hoja.tipo === 'nombre') { pintarHojaNombre(); return; }
+
   const e = DATOS.empresas.find(x => x.ticker === hoja.ticker);
   const foto = Cartera.calcular(estado, DATOS, semana);
   const px = Cartera.precio(DATOS, e.ticker, semana);
@@ -1125,6 +1217,41 @@ function pintarHoja(semana) {
     </div>`);
 }
 
+/* Corregir el nombre. Un niño se equivoca al teclear y quedarse mal escrito para siempre
+   en su propia app es una tontería fácil de evitar. */
+function pintarHojaNombre() {
+  document.getElementById('app').insertAdjacentHTML('beforeend', `
+    <div class="fondoNegro" data-cerrar="1">
+      <div class="hoja" data-nocerrar="1">
+        <h3>¿Cómo te llamas?</h3>
+        <p class="pie">Así aparece en tu cartera. Se queda en este teléfono.</p>
+        <div class="cuanto_input">
+          <input type="text" id="cambiarNombre" maxlength="${NOMBRE_MAX}"
+                 autocapitalize="words" enterkeyhint="go"
+                 value="${escapar(estado.nombre)}" style="font-size:20px">
+        </div>
+        <div class="acciones" style="padding:0">
+          <button class="boton vender" data-cerrar="1">Cancelar</button>
+          <button class="boton comprar" id="guardarNombre">Guardar</button>
+        </div>
+      </div>
+    </div>`);
+
+  const caja = $('#cambiarNombre'), boton = $('#guardarNombre');
+  const aplicar = () => {
+    const nombre = limpiarNombre(caja.value);
+    if (nombre.length < 2) { caja.focus(); return; }
+    estado.nombre = nombre;
+    guardar();
+    hoja = null;
+    pintar();                    // si cambias el estado, repinta TÚ (trampa #3)
+  };
+  boton.addEventListener('click', aplicar);
+  caja.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') aplicar(); });
+  caja.focus();
+  caja.select();
+}
+
 function ejecutar(semana) {
   const e = DATOS.empresas.find(x => x.ticker === hoja.ticker);
   const px = Cartera.precio(DATOS, e.ticker, semana);
@@ -1142,16 +1269,18 @@ function ejecutar(semana) {
 /* --- toques --------------------------------------------------------------- */
 
 document.addEventListener('click', (ev) => {
+  if (!estado) return;          // en la bienvenida todavía no hay reloj que consultar
   const semana = reloj().semana;
   // `data-nocerrar` va en la hoja misma y tiene que estar en esta lista: así `closest`
   // la encuentra ANTES que el fondo negro y tocar la hoja no la cierra. Los botones de
   // adentro siguen ganando porque están más cerca del toque.
   const t = ev.target.closest('[data-ir],[data-ficha],[data-volver],[data-comprar],' +
                               '[data-vender],[data-cerrar],[data-atajo],[data-hacer],' +
-                              '[data-nocerrar]');
+                              '[data-nombre],[data-nocerrar]');
   if (!t) return;
 
   if (t.dataset.nocerrar) return;
+  if (t.dataset.nombre)  { hoja = { tipo: 'nombre' }; }
   if (t.dataset.ir)      { vista = t.dataset.ir; fichaAbierta = null; }
   if (t.dataset.ficha)   { fichaAbierta = t.dataset.ficha; }
   if (t.dataset.volver)  { fichaAbierta = null; }
@@ -1185,6 +1314,7 @@ document.addEventListener('change', (ev) => { if (ev.target.id === 'montoInput')
 
 let semanaPintada = -1;
 function latir() {
+  if (!estado) return;          // en la bienvenida el mundo todavía no arranca
   const r = reloj();
   const cambio = r.semana !== semanaPintada;
   semanaPintada = r.semana;
@@ -1200,8 +1330,13 @@ setInterval(latir, 30000);                                   // nada de rAF: tra
 document.addEventListener('visibilitychange', () => { if (!document.hidden) latir(); });
 window.addEventListener('focus', latir);
 
+/* `ESPIA` se lee UNA vez al cargar, y cambiar solo el `#` no recarga la página: sin esto,
+   pegarle `#semana=272` a una pestaña ya abierta no hace nada y encima sigue guardando
+   como partida de verdad. Recargar es lo único honesto. */
+window.addEventListener('hashchange', () => location.reload());
+
 pintar();
-semanaPintada = reloj().semana;
+if (estado) semanaPintada = reloj().semana;
 window.listo = true;         // para las pruebas automáticas
 })();
 </script>
