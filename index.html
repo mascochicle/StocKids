@@ -120,8 +120,8 @@
   svg.grafica { width:100%; aspect-ratio:320/180; display:block; touch-action:none }
   .raya { stroke:var(--borde); stroke-width:1 }
   .raya.tenue { stroke:var(--raya) }
-  .cifra_eje, text.cifra { fill:var(--suave) }
-  text.anio { fill:var(--tenue) }
+  text.ejeDinero { fill:var(--suave) }
+  text.ejeTiempo { fill:var(--tenue) }
   .linea { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round }
   .linea.tuya { stroke:var(--verde) }
   .linea.metido { stroke:var(--ambar); stroke-width:1.5 }
@@ -1156,7 +1156,7 @@ const Grafica = (() => {
         // El tamaño va como atributo, no solo en CSS: el módulo tiene que verse bien aunque
         // quien lo use se olvide de darle estilo. El CSS puede sobreescribirlo.
         Object.assign(crear('text', {
-          class: 'cifra', x: X0 - 4, y: py + 3,
+          class: 'ejeDinero', x: X0 - 4, y: py + 3,
           'font-size': LETRA, 'text-anchor': 'end',
         }), { textContent: corto(v, decs) }));
     }
@@ -1177,7 +1177,7 @@ const Grafica = (() => {
       contenedor.append(
         crear('line', { class: 'raya tenue', x1: px, x2: px, y1: Y0, y2: Y1 }),
         Object.assign(crear('text', {
-          class: 'anio', x: px, y: ALTO - 5,
+          class: 'ejeTiempo', x: px, y: ALTO - 5,
           'font-size': LETRA, 'text-anchor': 'middle',
         }), { textContent: texto }));
     }
@@ -1664,7 +1664,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0957';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-1021';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
