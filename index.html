@@ -66,17 +66,28 @@
   #cuerpo { flex:1; position:relative; display:flex; min-height:0 }
   main { flex:1; padding:0 0 16px; overflow-y:auto; -webkit-overflow-scrolling:touch }
 
-  /* El "ya quedó" después de comprar o vender. Va flotando arriba del contenido para que se
-     vea sin importar dónde esté, y se quita solo a los 6 segundos. */
-  #recado { position:absolute; left:12px; right:12px; top:2px; z-index:20; pointer-events:none }
-  #recado .globo { pointer-events:auto; border-radius:14px; padding:12px 15px; font-size:13.5px;
-                   line-height:1.4; box-shadow:0 8px 24px rgba(0,0,0,.35); cursor:pointer;
-                   animation:entra .18s ease-out }
-  #recado .globo b { font-weight:750 }
-  #recado .bien { background:var(--verde); color:var(--sobreVerde) }
-  #recado .neutro { background:var(--panel2); color:var(--texto); border:1px solid var(--borde) }
-  @keyframes entra { from { opacity:0; transform:translateY(-8px) } to { opacity:1; transform:none } }
-  @media (prefers-reduced-motion: reduce) { #recado .globo { animation:none } }
+  /* El "ya quedó" después de comprar o vender: un cartel EN MEDIO de la pantalla, para que no
+     se pueda pasar por alto. Se cierra con su botón — a propósito no se va solo: que confirme
+     que lo vio es parte de que la compra se sienta real. */
+  .centrado { position:absolute; inset:0; background:rgba(3,5,8,.72); display:flex;
+              align-items:center; justify-content:center; padding:24px; z-index:20 }
+  .cartel { width:100%; max-width:340px; background:var(--fondo); border:1px solid var(--borde);
+            border-radius:20px; padding:26px 22px 20px; text-align:center;
+            box-shadow:0 18px 46px rgba(0,0,0,.45); animation:crece .18s ease-out }
+  .cartel .marca_ok { width:62px; height:62px; margin:0 auto 14px; border-radius:50%;
+                      display:grid; place-items:center; font-size:32px; font-weight:800 }
+  .cartel .marca_ok.bien { background:var(--verde); color:var(--sobreVerde) }
+  .cartel .marca_ok.neutro { background:var(--panel2); color:var(--texto) }
+  .cartel h3 { margin:0 0 8px; font-size:23px; font-weight:800; letter-spacing:-.5px }
+  .cartel p { margin:0; font-size:15px; line-height:1.5; color:var(--suave) }
+  .cartel p b { color:var(--texto); font-weight:750 }
+  .cartel .cuanto_grande { display:block; font-size:26px; font-weight:800; color:var(--dato);
+                           margin:10px 0 4px; font-variant-numeric:tabular-nums }
+  .cartel button { width:100%; height:48px; margin-top:20px; border-radius:14px; border:none;
+                   background:var(--verde); color:var(--sobreVerde); font:inherit;
+                   font-size:16px; font-weight:750; cursor:pointer }
+  @keyframes crece { from { opacity:0; transform:scale(.94) } to { opacity:1; transform:none } }
+  @media (prefers-reduced-motion: reduce) { .cartel { animation:none } }
 
   /* --- avisos --- */
   .aviso { margin:0 14px 10px; padding:11px 13px; border-radius:12px; font-size:13.5px;
@@ -366,10 +377,7 @@
     </div>
     <div class="cuenta" id="cuenta"></div>
   </header>
-  <!-- El recado va DENTRO del cuerpo, no encima del encabezado: si no, tapa la fecha y el
-       contador del próximo precio justo cuando uno acaba de operar y quiere verlos. -->
   <div id="cuerpo">
-    <div id="recado"></div>
     <main id="vista"></main>
   </div>
   <!-- Vive fuera de las vistas: si se repintara con ellas, el diálogo de archivos del
@@ -1581,12 +1589,10 @@ let confirmandoBorrar = false;
 /* Lo que trae el archivo que acaba de escoger, o su error. Null cuando no hay nada a medias. */
 let importando = null;
 /* El mensaje de "listo, ya quedó" después de comprar o vender. Se borra solo. */
-let recado = null, recadoReloj = null;
+let recado = null;
 
-function decir(texto, tipo = 'bien') {
-  clearTimeout(recadoReloj);
-  recado = { texto, tipo };
-  recadoReloj = setTimeout(() => { recado = null; pintar(); }, 6000);
+function decir(titulo, cuerpo, tipo = 'bien') {
+  recado = { titulo, cuerpo, tipo };
 }
 
 /*
@@ -1650,7 +1656,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0928';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0938';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1876,9 +1882,6 @@ function pintar() {
   for (const b of document.querySelectorAll('nav button'))
     b.classList.toggle('puesto', b.dataset.ir === vista);
 
-  $('#recado').innerHTML = recado
-    ? `<div class="globo ${recado.tipo}" data-recado="1">${recado.texto}</div>` : '';
-
   const main = $('#vista');
   if (fichaAbierta) pintarFicha(main, dia);
   else if (vista === 'mercado') pintarMercado(main, dia);
@@ -1887,6 +1890,7 @@ function pintar() {
 
   main.insertAdjacentHTML('beforeend', `<div class="sello_ver">StocKids ${SK_VER}</div>`);
   pintarHoja(dia);
+  pintarRecado();
 }
 
 /* --- vista: mi dinero ---------------------------------------------------- */
@@ -2319,6 +2323,26 @@ function pintarFicha(main, dia) {
         class="${vistaFicha === v.clave ? 'puesta' : ''}">${v.etiqueta}</button>`).join('')}</div>
     <div class="leido" id="leidoFicha">Arrastra la gráfica para moverte en el tiempo ·
       pellizca para acercar · deja el dedo quieto para leer un día</div>
+
+
+
+    <div class="acciones">
+      <button class="boton comprar" data-comprar="${e.ticker}"
+        ${foto.efectivo < 1 ? 'disabled' : ''}>Comprar</button>
+      <button class="boton vender" data-vender="${e.ticker}"
+        ${mia ? '' : 'disabled'}>Vender</button>
+    </div>
+    ${mia ? `<div class="tengo">Tienes <b>${mia.acciones.toFixed(2)}</b> que valen
+        <b>${dinero(mia.valor)}</b>. Te costaron <b>${dinero(mia.precioPromedio)}</b> cada una,
+        o sea que vas <b class="${clase(mia.ganancia)}">${conSigno(mia.ganancia)}</b>.
+        ${mia.dividendos > 0.005
+          ? `Además te ha pagado <b>${dinero(mia.dividendos)}</b> en dividendos.` : ''}</div>` : ''}
+    ${pagados.length ? `<div class="reparto">
+        <b>Te paga por tenerla.</b> ${escapar(e.nombre)} reparte parte de sus ganancias entre
+        quienes tienen sus acciones. Van ${pagados.length} pagos; el último fue de
+        <b>${dinero(ultimo[1])}</b> por acción.</div>`
+      : `<div class="reparto no">${escapar(e.nombre)} <b>no reparte dividendos</b>: todo lo
+        que gana se lo queda para crecer. Solo ganas si sube el precio.</div>`}
     ${(() => {
       const partidas = (e.splits || []).filter(([d]) => d <= dia);
       if (!partidas.length) return '';
@@ -2337,24 +2361,7 @@ function pintarFicha(main, dia) {
         una valiendo la ${veces.toFixed(0)}ª parte. Nadie perdió ni ganó nada. Por eso aquí los
         precios de antes salen divididos entre ${veces.toFixed(0)} — así los porcentajes son de
         verdad, pero <b>no es lo que costaba ese día</b>.</div>`;
-    })()}
-    ${pagados.length ? `<div class="reparto">
-        <b>Te paga por tenerla.</b> ${escapar(e.nombre)} reparte parte de sus ganancias entre
-        quienes tienen sus acciones. Van ${pagados.length} pagos; el último fue de
-        <b>${dinero(ultimo[1])}</b> por acción.</div>`
-      : `<div class="reparto no">${escapar(e.nombre)} <b>no reparte dividendos</b>: todo lo
-        que gana se lo queda para crecer. Solo ganas si sube el precio.</div>`}
-    ${mia ? `<div class="tengo">Tienes <b>${mia.acciones.toFixed(2)}</b> que valen
-        <b>${dinero(mia.valor)}</b>. Te costaron <b>${dinero(mia.precioPromedio)}</b> cada una,
-        o sea que vas <b class="${clase(mia.ganancia)}">${conSigno(mia.ganancia)}</b>.
-        ${mia.dividendos > 0.005
-          ? `Además te ha pagado <b>${dinero(mia.dividendos)}</b> en dividendos.` : ''}</div>` : ''}
-    <div class="acciones">
-      <button class="boton comprar" data-comprar="${e.ticker}"
-        ${foto.efectivo < 1 ? 'disabled' : ''}>Comprar</button>
-      <button class="boton vender" data-vender="${e.ticker}"
-        ${mia ? '' : 'disabled'}>Vender</button>
-    </div>`;
+    })()}`;
 
   // La gráfica del precio arranca cuando la empresa salió a bolsa, no antes.
   const svg = $('#lienzoFicha');
@@ -2406,6 +2413,23 @@ function pintarFicha(main, dia) {
         ` · abrió ${dinero(v.a)} · máx ${dinero(v.alto)} · mín ${dinero(v.bajo)}`);
     },
   });
+}
+
+/* El cartel de "ya quedó". Va en medio de la pantalla y se cierra con su botón: que tenga
+   que confirmar que lo vio es parte de que la operación se sienta real. */
+function pintarRecado() {
+  const viejo = $('.centrado');
+  if (viejo) viejo.remove();
+  if (!recado) return;
+  document.getElementById('app').insertAdjacentHTML('beforeend', `
+    <div class="centrado" data-recado="1">
+      <div class="cartel" data-nocerrar="1">
+        <div class="marca_ok ${recado.tipo}">${recado.tipo === 'bien' ? '✓' : '↑'}</div>
+        <h3>${recado.titulo}</h3>
+        <p>${recado.cuerpo}</p>
+        <button data-recado="1">Entendido</button>
+      </div>
+    </div>`);
 }
 
 /* --- la hoja de comprar y vender ----------------------------------------- */
@@ -2567,12 +2591,16 @@ function ejecutar(dia) {
   /* El "ya quedó". Antes la compra pasaba en silencio y uno se quedaba dudando si había
      pasado algo. Se dice CUÁNTAS acciones y a QUÉ precio, que es lo que hay que entender. */
   const m = r.movimiento;
-  decir(m.tipo === 'compra'
-    ? `<b>¡Listo!</b> Compraste <b>${m.acciones.toFixed(4)}</b> acciones de
-       ${escapar(e.nombre)} a ${dinero(m.precio)} cada una. Te costaron ${dinero(m.monto)}.`
-    : `<b>Vendiste</b> ${m.acciones.toFixed(4)} acciones de ${escapar(e.nombre)} a
-       ${dinero(m.precio)} cada una. Recibiste <b>${dinero(m.monto)}</b> en efectivo.`,
-    m.tipo === 'compra' ? 'bien' : 'neutro');
+  if (m.tipo === 'compra')
+    decir('¡Ya es tuya!',
+      `Compraste <span class="cuanto_grande">${m.acciones.toFixed(4)}</span>
+       acciones de <b>${escapar(e.nombre)}</b> a ${dinero(m.precio)} cada una.<br>
+       Te costaron <b>${dinero(m.monto)}</b>.`, 'bien');
+  else
+    decir('Vendida',
+      `Vendiste <span class="cuanto_grande">${m.acciones.toFixed(4)}</span>
+       acciones de <b>${escapar(e.nombre)}</b> a ${dinero(m.precio)} cada una.<br>
+       Recibiste <b>${dinero(m.monto)}</b> en efectivo.`, 'neutro');
 
   hoja = null;
   pintar();                 // si cambias el estado, repinta TÚ (trampa #3)
@@ -2594,7 +2622,7 @@ document.addEventListener('click', (ev) => {
 
   if (t.dataset.nocerrar) return;
   if (t.dataset.nombre)  { hoja = { tipo: 'nombre' }; }
-  if (t.dataset.recado) { clearTimeout(recadoReloj); recado = null; pintar(); return; }
+  if (t.dataset.recado) { recado = null; pintar(); return; }
   if (t.dataset.copia) {
     if (t.dataset.copia === 'json') guardarRespaldo();
     else bajarArchivo(`stockids-movimientos-${parteDelNombre()}-${hoyISO()}.csv`,
