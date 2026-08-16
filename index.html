@@ -29,15 +29,26 @@
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent }
   html, body { margin:0; background:var(--afuera); color:var(--texto);
     font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif }
-  /* ⚠️ ALTURA FIJA, no `min-height`. Con `min-height` el contenedor crece con el contenido,
-     el `overflow` de `main` nunca entra, y la página entera se desplaza llevándose la barra
-     de pestañas. Lo cachó Marco el 15-ago-2026: la barra se le corría al bajar. */
-  html, body { height:100dvh; overflow:hidden }
-  body { display:flex; justify-content:center }
+  /*
+   * ⚠️ NADA DE `dvh`, Y NADA DE `min-height`. Dos bugs distintos, los dos con la barra de
+   * pestañas de por medio, los dos cachados por Marco:
+   *
+   *   15-ago  con `min-height` el contenedor crece con el contenido, el `overflow` de `main`
+   *           nunca entra, y la página entera se desplaza llevándose la barra.
+   *   16-ago  con `height:100dvh`, al cambiar de tema se actualiza el color de la barra de
+   *           estado, Android recalcula la ventana, y durante ese recálculo `dvh` puede
+   *           valer la pantalla COMPLETA. El contenedor queda más alto que lo visible, la
+   *           barra se sale por abajo y —como el body no se desplaza— desaparece.
+   *
+   * La salida es no depender de `dvh`: el `body` se ancla a la ventana con `position:fixed`
+   * y de ahí para abajo todo es `height:100%`, que siempre es exactamente lo que se ve.
+   */
+  html, body { overflow:hidden }
+  body { position:fixed; inset:0; display:flex; justify-content:center }
 
   /* Probar SIEMPRE a 480 px: es el ancho real de su S25 Ultra, no 393. */
   #app { width:480px; max-width:100%; background:var(--fondo); position:relative;
-         display:flex; flex-direction:column; height:100dvh; overflow:hidden }
+         display:flex; flex-direction:column; height:100%; overflow:hidden }
 
   /* --- encabezado --- */
   header { padding:14px 18px 10px; display:flex; align-items:flex-start; gap:10px }
@@ -66,6 +77,12 @@
   .cambio { font-size:14px; font-weight:600; margin-top:3px }
   .sube { color:var(--verde) } .baja { color:var(--rojo) }
   .cambio small { color:var(--suave); font-weight:400 }
+  /* Lo invertido, en verde y más grande que las tarjetas de abajo (16 px): es el dinero que
+     está trabajando, y Marco lo quiso junto al total. */
+  .invertido { margin-top:5px; font-size:19px; font-weight:750; color:var(--verde);
+               font-variant-numeric:tabular-nums }
+  .invertido i { font-style:normal; font-size:13px; font-weight:600; color:var(--suave);
+                 margin-left:3px }
 
   .lienzo { padding:10px 10px 0 }
   svg.grafica { width:100%; aspect-ratio:320/180; display:block; touch-action:none }
@@ -143,12 +160,12 @@
   .fila .cuanto .mueve span { font-size:12.5px; font-weight:600; opacity:.7; margin-right:6px }
   .quieto { color:var(--suave) }
 
-  /* Tres tarjetas: invertido, sin invertir y lo cobrado. La de "invertido" la pidió Marco el
-     16-ago-2026 — sin ella solo se veía el dinero parado, que es media foto. */
-  .tarjetas { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; padding:10px 14px 0 }
+  /* Dos tarjetas. Lo INVERTIDO ya no está aquí: Marco lo quiso arriba, junto al total y en
+     verde, porque es el dinero que está trabajando. Aquí abajo queda lo que NO trabaja. */
+  .tarjetas { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:10px 14px 0 }
   .tarjeta { background:var(--panel); border:1px solid var(--borde); border-radius:14px;
-             padding:10px 11px; min-width:0 }
-  .tarjeta i { font-style:normal; color:var(--suave); font-size:11px; display:block;
+             padding:11px 13px; min-width:0 }
+  .tarjeta i { font-style:normal; color:var(--suave); font-size:11.5px; display:block;
                margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
   /* El dinero se encoge si no cabe, en vez de desbordar la tarjeta: con NVIDIA una cartera
      puede llegar a seis cifras. */
@@ -1572,7 +1589,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0812';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0839';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1770,6 +1787,11 @@ function pintar() {
   // tienen que pasar por la pregunta.
   if (!estado || !estado.nombre) { pintarBienvenida(); return; }
 
+  // Cinturón y tirantes: la bienvenida los esconde, y si algo dejara ese estado a medias la
+  // barra de pestañas se quedaría invisible sin forma de recuperarla. Aquí siempre vuelven.
+  document.querySelector('header').style.display = '';
+  document.querySelector('nav').style.display = '';
+
   const r = reloj();
   adelantarTrinquete(r);
   const dia = r.dia;
@@ -1824,6 +1846,7 @@ function pintarCartera(main, dia, r) {
              (${pct(foto.gananciaPct)})`}
         <small>sobre los ${dinero(foto.aportado)} que has metido</small>
       </div>
+      <div class="invertido">${dinero(foto.enEmpresas)} <i>invertido</i></div>
     </div>
     <div class="lienzo"><svg class="grafica" id="lienzoCartera"></svg></div>
     <div class="vistas">${Grafica.vistasDisponibles().map(v =>
@@ -1836,9 +1859,8 @@ function pintarCartera(main, dia, r) {
     </div>
     <div class="leido" id="leido"></div>
     <div class="tarjetas">
-      <div class="tarjeta"><i>Invertido</i><b>${dinero(foto.enEmpresas)}</b></div>
       <div class="tarjeta"><i>Sin invertir</i><b>${dinero(foto.efectivo)}</b></div>
-      <div class="tarjeta"><i>Te han pagado</i><b>${dinero(foto.dividendos)}</b></div>
+      <div class="tarjeta"><i>Te han pagado por tener</i><b>${dinero(foto.dividendos)}</b></div>
     </div>
     ${foto.posiciones.length ? `
       <div class="titulo">En qué está tu dinero</div>
