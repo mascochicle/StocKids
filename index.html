@@ -964,13 +964,26 @@ const Grafica = (() => {
     return { piso, techo, marcas };
   }
 
-  /* Dinero corto, para que quepa en el eje: $1.2k, $470k */
-  function corto(n) {
+  /*
+   * Dinero corto, para que quepa en el eje: $1.2k, $470k, $0.48.
+   *
+   * ⚠️ Los centavos IMPORTAN. NVIDIA en 2009 cuesta $0.48 porque se partió 40 veces, y
+   * redondeando a enteros el eje entero decía "$1 $1 $1 $0 $0 $0" — seis etiquetas y ningún
+   * dato. Lo cachó Marco el 16-ago-2026 con una captura.
+   */
+  function corto(n, decimales) {
     const a = Math.abs(n);
     if (a >= 1e6) return `$${(n / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M`;
     if (a >= 1000) return `$${(n / 1000).toFixed(a >= 10000 ? 0 : 1)}k`;
-    return `$${Math.round(n)}`;
+    // Todo el eje lleva los MISMOS decimales, que se deciden por el salto entre rayas y no
+    // por cada número: "$1.0" junto a "$0.20" se ve descuidado.
+    if (decimales != null) return `$${n.toFixed(decimales)}`;
+    if (a >= 10 || a === 0) return `$${Math.round(n)}`;
+    return `$${n.toFixed(a >= 1 ? 1 : 2)}`;
   }
+
+  /* Cuántos decimales pide un eje cuyas rayas van de `paso` en `paso`. */
+  const decimalesDe = (paso) => paso >= 10 ? 0 : paso >= 1 ? 1 : paso >= 0.1 ? 2 : 3;
 
   const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
     'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
@@ -986,11 +999,22 @@ const Grafica = (() => {
    *
    * Devuelve un objeto con `marcar(pos)` para el dedo.
    */
-  function dibujar(contenedor, { indices, hasta, fecha, series }) {
+  function dibujar(contenedor, { indices, hasta, ventana, fecha, series }) {
     // Aquí muere el futuro: nadie de aquí para abajo ve un dato de después de `hasta`.
     const vistos = indices.filter(i => i <= hasta);
     if (!vistos.length) vistos.push(hasta);
     const fin = vistos.length - 1;
+
+    /*
+     * ⚠️ El eje horizontal va por la VENTANA, no por los puntos dibujados. Si la ventana se
+     * pasa del día de hoy, ese pedazo se queda VACÍO en vez de estirar las velas para llenar
+     * el ancho. Es lo que pidió Marco el 16-ago-2026 señalando el "espacio sin precio" de
+     * TradingView: poder correr la gráfica y dejar aire a la derecha.
+     *
+     * Y sigue sin enseñar el futuro: en ese hueco no se dibuja nada porque no hay nada.
+     */
+    const v0 = ventana ? Math.min(ventana.desde, vistos[0]) : vistos[0];
+    const v1 = ventana ? Math.max(ventana.hasta, vistos[fin]) : vistos[fin];
 
     contenedor.setAttribute('viewBox', `0 0 ${ANCHO} ${ALTO}`);
     contenedor.setAttribute('preserveAspectRatio', 'none');
@@ -1015,10 +1039,12 @@ const Grafica = (() => {
     }
     const { piso, techo, marcas } = escalaY(min, max);
 
-    const x = i => fin === 0 ? X0 : X0 + (i / fin) * (X1 - X0);
+    // `x` recibe un DÍA, no una posición del arreglo.
+    const x = d => v1 === v0 ? X0 : X0 + ((d - v0) / (v1 - v0)) * (X1 - X0);
     const y = v => Y1 - ((v - piso) / (techo - piso)) * (Y1 - Y0);
 
     /* rayas horizontales con su cifra */
+    const decs = marcas.length > 1 ? decimalesDe(marcas[1] - marcas[0]) : null;
     for (const v of marcas) {
       const py = y(v);
       contenedor.append(
@@ -1028,7 +1054,7 @@ const Grafica = (() => {
         Object.assign(crear('text', {
           class: 'cifra', x: X0 - 4, y: py + 3,
           'font-size': LETRA, 'text-anchor': 'end',
-        }), { textContent: corto(v) }));
+        }), { textContent: corto(v, decs) }));
     }
 
     /* Marcas de tiempo abajo. Si el tramo abarca más de dos años se rotula por año; si no,
@@ -1043,10 +1069,11 @@ const Grafica = (() => {
       previo = clave;
       if (i === 0 && fin > 8) continue;              // el primero se encima con el eje
       const texto = porAnio ? clave : MESES[+f.slice(5, 7) - 1];
+      const px = x(vistos[i]);
       contenedor.append(
-        crear('line', { class: 'raya tenue', x1: x(i), x2: x(i), y1: Y0, y2: Y1 }),
+        crear('line', { class: 'raya tenue', x1: px, x2: px, y1: Y0, y2: Y1 }),
         Object.assign(crear('text', {
-          class: 'anio', x: x(i), y: ALTO - 5,
+          class: 'anio', x: px, y: ALTO - 5,
           'font-size': LETRA, 'text-anchor': 'middle',
         }), { textContent: texto }));
     }
@@ -1058,13 +1085,16 @@ const Grafica = (() => {
      */
     const velas = series.find(s => s.velas);
     if (velas) {
-      const paso = fin > 0 ? (X1 - X0) / fin : X1 - X0;
+      // El ancho sale del hueco entre dos velas EN DÍAS, no de repartir la pantalla: con
+      // espacio vacío a la derecha, repartir daría velas más anchas de la cuenta.
+      const saltoDias = fin > 0 ? (vistos[fin] - vistos[0]) / fin : 1;
+      const paso = (X1 - X0) * saltoDias / Math.max(1, v1 - v0);
       const ancho = Math.max(1.2, Math.min(paso * 0.62, 9));
       for (let i = 0; i <= fin; i++) {
         const v = velas.velas(vistos[i], i === 0 ? vistos[i] : vistos[i - 1] + 1);
         if (!v) continue;
         const sube = v.c >= v.a;
-        const cx = x(i);
+        const cx = x(vistos[i]);
         const yA = y(v.a), yC = y(v.c);
         contenedor.append(crear('line', {
           class: `mecha ${sube ? 'sube' : 'baja'}`,
@@ -1085,13 +1115,13 @@ const Grafica = (() => {
     series.forEach((s, k) => {
       if (s.velas) return;                     // esa ya se dibujó como velas
       const d = valores[k].map((v, i) =>
-        `${i ? 'L' : 'M'}${x(i).toFixed(2)} ${y(v).toFixed(2)}`).join('');
+        `${i ? 'L' : 'M'}${x(vistos[i]).toFixed(2)} ${y(v).toFixed(2)}`).join('');
       contenedor.append(crear('path', {
         class: `linea ${s.clase}`, d, 'vector-effect': 'non-scaling-stroke',
         ...(s.punteada ? { 'stroke-dasharray': '3 3' } : {}),
       }));
       contenedor.append(crear('circle', {
-        class: `punta ${s.clase}`, cx: x(fin), cy: y(valores[k][fin]), r: 2.5,
+        class: `punta ${s.clase}`, cx: x(vistos[fin]), cy: y(valores[k][fin]), r: 2.5,
       }));
     });
 
@@ -1102,12 +1132,22 @@ const Grafica = (() => {
     return {
       fin,
       dias: vistos,
-      posEn(px) { return Math.round(((px - X0) / (X1 - X0)) * fin); },
+      // De píxel a posición del arreglo, pasando por el DÍA: con hueco a la derecha las dos
+      // cosas ya no son lo mismo.
+      posEn(px) {
+        const dia = v0 + ((px - X0) / (X1 - X0)) * (v1 - v0);
+        let mejor = 0, cerca = Infinity;
+        for (let i = 0; i <= fin; i++) {
+          const d = Math.abs(vistos[i] - dia);
+          if (d < cerca) { cerca = d; mejor = i; }
+        }
+        return mejor;
+      },
       marcar(pos) {
         if (pos == null) { guia.setAttribute('visibility', 'hidden'); return null; }
         const p = Math.max(0, Math.min(pos, fin));
-        guia.setAttribute('x1', x(p));
-        guia.setAttribute('x2', x(p));
+        guia.setAttribute('x1', x(vistos[p]));
+        guia.setAttribute('x2', x(vistos[p]));
         guia.setAttribute('visibility', 'visible');
         return { dia: vistos[p], fecha: fecha(vistos[p]), valores: valores.map(v => v[p]) };
       },
@@ -1160,14 +1200,21 @@ const Grafica = (() => {
     /* Cuántos días vale un paso horizontal. Con la ventana chica, un dedo mueve poco. */
     const diasPorUnidad = () => ancho() / (X1 - X0);
 
+    /*
+     * Cuánto aire se deja correr a la derecha del último precio. Marco lo pidió el
+     * 16-ago-2026 señalando el "espacio sin precio" de TradingView: poder seguir arrastrando
+     * aunque ya no haya velas. NO es asomarse al futuro — ahí no se dibuja nada, porque no
+     * hay nada. El precio de mañana sigue sin existir para la gráfica.
+     */
+    const AIRE = 0.45;                // 45% del ancho de la ventana
+
     const mover = (desde, hasta) => {
       const largo = hasta - desde;
-      // No se deja salir del rango: ni antes del primer dato ni después de HOY. Asomarse al
-      // futuro arrastrando sería justo lo que la gráfica tiene prohibido.
+      const tope = limites.hasta + Math.round(largo * AIRE);
+      // Hacia atrás sí hay pared dura: antes del primer dato no hay nada que enseñar.
       if (desde < limites.desde) { desde = limites.desde; hasta = desde + largo; }
-      if (hasta > limites.hasta) { hasta = limites.hasta; desde = hasta - largo; }
-      alMover({ desde: Math.max(limites.desde, Math.round(desde)),
-                hasta: Math.min(limites.hasta, Math.round(hasta)) });
+      if (hasta > tope) { hasta = tope; desde = hasta - largo; }
+      alMover({ desde: Math.max(limites.desde, Math.round(desde)), hasta: Math.round(hasta) });
     };
 
     const cancelarEspera = () => { clearTimeout(reloj); reloj = null; };
@@ -1262,7 +1309,7 @@ const Grafica = (() => {
   }
 
   return { ANCHO, ALTO, LETRA, MINIMO_VENTANA, MAX_VELAS,
-           dibujar, seguirElDedo, interactuar, corto, escalaY, pasoBonito,
+           dibujar, seguirElDedo, interactuar, corto, decimalesDe, escalaY, pasoBonito,
            VISTAS, muestreo, muestreoVentana, ventanaDe, vistasDisponibles };
 })();
 
@@ -1364,7 +1411,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0737';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0746';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1858,7 +1905,9 @@ function pintarFicha(main, dia) {
     ventanaFicha = Grafica.ventanaDe(vistaFicha, e.desde, dia);
     fichaDeLaVentana = e.ticker + vistaFicha;
   }
-  ventanaFicha.hasta = Math.min(ventanaFicha.hasta, dia);
+  // Ojo: NO se recorta `ventanaFicha.hasta` al día de hoy. Puede pasarse, y ese pedazo se
+  // dibuja vacío (el "espacio sin precio"). Lo que no puede pasarse es lo que se DIBUJA, y
+  // de eso se encarga `dibujar` con su `hasta`.
 
   const serieFicha = {
     nombre: e.nombre, clase: 'precio',
@@ -1867,8 +1916,8 @@ function pintarFicha(main, dia) {
     velas: (hastaDia, desdeDia) => Datos.velaDe(e, Math.max(e.desde, desdeDia), hastaDia),
   };
   const pintado = Grafica.dibujar(svg, {
-    indices: Grafica.muestreoVentana(ventanaFicha.desde, ventanaFicha.hasta),
-    hasta: dia, fecha: DATOS.fecha, series: [serieFicha],
+    indices: Grafica.muestreoVentana(ventanaFicha.desde, Math.min(ventanaFicha.hasta, dia)),
+    hasta: dia, ventana: ventanaFicha, fecha: DATOS.fecha, series: [serieFicha],
   });
   Grafica.interactuar(svg, {
     pintado,
@@ -1880,8 +1929,8 @@ function pintarFicha(main, dia) {
     redibujar: (v) => {
       ventanaFicha = v;
       return Grafica.dibujar(svg, {
-        indices: Grafica.muestreoVentana(v.desde, v.hasta),
-        hasta: dia, fecha: DATOS.fecha, series: [serieFicha],
+        indices: Grafica.muestreoVentana(v.desde, Math.min(v.hasta, dia)),
+        hasta: dia, ventana: v, fecha: DATOS.fecha, series: [serieFicha],
       });
     },
     alLeer: (dato) => {
