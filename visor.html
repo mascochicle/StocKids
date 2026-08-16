@@ -194,6 +194,11 @@
   .pie { text-align:center; color:var(--tenue); font-size:11px; margin-top:22px }
 
   .oculto { display:none !important }
+
+  /* ⚠️ Para el <input type="file"> y solo para él: con `display:none` no está renderizado, y
+     Chrome de Android abre un selector del que a veces no se puede volver — la app se queda
+     atrás y hay que matarla. Se le quita del paso sin sacarlo del render. */
+  .fueraDelPaso { position:absolute; left:-9999px; width:1px; height:1px; opacity:0 }
 </style>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -311,7 +316,9 @@
       <button class="boton plano" id="compartir" style="margin-bottom:8px">Mandar a su teléfono</button>
       <button class="boton plano" id="respaldar" style="margin-bottom:8px">Guardar un respaldo</button>
       <button class="boton plano" id="restaurar">Cargar un respaldo</button>
-      <input type="file" id="archivo" accept="application/json" class="oculto">
+      <!-- ⚠️ `fueraDelPaso`, NO `oculto`: `display:none` en un <input type="file"> hace que
+           Chrome de Android abra un selector del que a veces no se puede volver. -->
+      <input type="file" id="archivo" accept="application/json" class="fueraDelPaso">
     </div>
 
     <div class="aviso" id="avisoDatos"></div>
@@ -1114,7 +1121,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260816-1402';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260816-1420';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
@@ -1732,8 +1739,21 @@ function enlaceParaCompartir() {
     URL.revokeObjectURL(a.href);
   });
 
-  $('restaurar').addEventListener('click', () => $('archivo').click());
+  /* Misma bandera que en StocKids: el registro del service worker no debe recargar la página
+     mientras el selector está abierto. Cancelar NO dispara `change`, así que `focus` es el
+     único aviso de que el usuario volvió. */
+  $('restaurar').addEventListener('click', () => {
+    window.escogiendoArchivo = true;
+    const soltar = () => {
+      window.escogiendoArchivo = false;
+      window.removeEventListener('focus', soltar);
+    };
+    window.addEventListener('focus', soltar);
+    setTimeout(soltar, 120000);
+    $('archivo').click();
+  });
   $('archivo').addEventListener('change', async () => {
+    window.escogiendoArchivo = false;
     const f = $('archivo').files[0];
     if (!f) return;
     try {
@@ -1781,6 +1801,11 @@ if ('serviceWorker' in navigator) {
   var _recargando = false;
   navigator.serviceWorker.addEventListener('controllerchange', function () {
     if (_recargando) return;
+    /* ⚠️ Nunca recargar con el selector de archivos abierto. Abrirlo manda la app a segundo
+       plano; al volver se busca actualización, y si hay una esperando esto recargaba la
+       página encima del usuario — perdiendo el archivo que estaba escogiendo y pareciendo
+       que la app se trabó. Marco lo cachó el 16-ago-2026. */
+    if (window.escogiendoArchivo) return;
     _recargando = true;
     location.reload();
   });
@@ -1788,7 +1813,7 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
       reg.update();
       document.addEventListener('visibilitychange', function () {
-        if (!document.hidden) reg.update();
+        if (!document.hidden && !window.escogiendoArchivo) reg.update();
       });
     }).catch(function (e) { console.warn('sw:', e); });
   });
