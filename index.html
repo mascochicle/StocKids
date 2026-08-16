@@ -228,6 +228,9 @@
 
   /* --- botones --- */
   .acciones { display:flex; gap:10px; padding:16px 18px 0 }
+  /* En vertical y con el seguro al final: ver la nota de `pintarHojaBorrar`. */
+  .acciones.apiladas { flex-direction:column; padding:0 }
+  .acciones.apiladas .boton { flex:none }
   button.boton { flex:1; height:48px; border-radius:14px; border:none; font:inherit;
                  font-size:15.5px; font-weight:700; cursor:pointer }
   .comprar { background:var(--verde); color:var(--sobreVerde) }
@@ -1605,7 +1608,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0850';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0857';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -2243,6 +2246,7 @@ function pintarHoja(dia) {
   if (!hoja) return;
 
   if (hoja.tipo === 'nombre') { pintarHojaNombre(); return; }
+  if (hoja.tipo === 'borrar') { pintarHojaBorrar(dia); return; }
 
   const e = DATOS.empresas.find(x => x.ticker === hoja.ticker);
   const foto = Cartera.calcular(estado, DATOS, dia);
@@ -2292,6 +2296,38 @@ function pintarHoja(dia) {
           <button class="boton vender" data-cerrar="1">Cancelar</button>
           <button class="boton comprar" id="botonHacer" data-hacer="1"
             ${monto > 0 ? '' : 'disabled'}>${comprando ? 'Comprar' : 'Vender'}</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+/*
+ * La ÚLTIMA confirmación antes de borrar la partida. Marco pidió dos el 16-ago-2026, para
+ * que no se le vaya por error.
+ *
+ * ⚠️ Los botones van EN VERTICAL y con el seguro ABAJO, al revés de lo que uno pondría.
+ * Razón medida, no gusto: la hoja sube desde el borde inferior y su fila de botones cae
+ * justo encima de la barra de pestañas. Con los botones en fila, "Borrar mi partida" quedaba
+ * exactamente sobre "Mi dinero" — un toque por costumbre y adiós partida. Poniéndolos en
+ * vertical, lo que queda sobre la barra es "No, mejor no".
+ */
+function pintarHojaBorrar(dia) {
+  const foto = Cartera.calcular(estado, DATOS, dia);
+  document.getElementById('app').insertAdjacentHTML('beforeend', `
+    <div class="fondoNegro" data-cerrar="1">
+      <div class="hoja" data-nocerrar="1">
+        <h3>¿Seguro, ${escapar(estado.nombre)}?</h3>
+        <p class="pie">Es la última pregunta. Después ya no se puede volver.</p>
+        <div class="aviso_borrar" style="margin-bottom:16px">
+          Vas a perder <b>${dinero(foto.total)}</b> y
+          <b>${estado.movimientos.length}</b> ${estado.movimientos.length === 1
+            ? 'movimiento' : 'movimientos'}${
+            tiempoJugado() ? `, de <b>${tiempoJugado()}</b> jugando` : ''}.
+          Empiezas otra vez en enero de 2015 con $1,000.
+        </div>
+        <div class="acciones apiladas">
+          <button class="boton borrar" data-borrar="ahora">Sí, borrar mi partida</button>
+          <button class="boton comprar" data-cerrar="1">No, mejor no</button>
         </div>
       </div>
     </div>`);
@@ -2365,12 +2401,16 @@ document.addEventListener('click', (ev) => {
   if (t.dataset.borrar) {
     if (t.dataset.borrar === 'quiza') confirmandoBorrar = true;
     else if (t.dataset.borrar === 'no') confirmandoBorrar = false;
-    else {
+    /* La SEGUNDA confirmación, y a propósito en otra parte de la pantalla: si las dos
+       estuvieran en el mismo sitio, un doble toque rápido pasaría por las dos sin leer. */
+    else if (t.dataset.borrar === 'si') hoja = { tipo: 'borrar' };
+    else if (t.dataset.borrar === 'ahora') {
       /* Aquí sí se borra. El TEMA se queda: es una preferencia, no parte de la partida, y
          devolverle el fondo blanco a alguien que lo puso en noche sería una grosería. */
       localStorage.removeItem(CLAVE);
       estado = null;
       confirmandoBorrar = false;
+      hoja = null;
       diaPintado = -1;
       vista = 'cartera';
       fichaAbierta = null;
@@ -2389,12 +2429,15 @@ document.addEventListener('click', (ev) => {
     if (t.dataset.donde === 'ficha') vistaFicha = t.dataset.vista;
     else vistaCartera = t.dataset.vista;
   }
-  if (t.dataset.ir)      { vista = t.dataset.ir; fichaAbierta = null; }
+  /* Cambiar de pantalla cierra cualquier hoja abierta. En el teléfono la capa oscura tapa
+     la barra de pestañas y no se puede llegar aquí, pero tratándose de borrar la partida no
+     me apoyo en eso: si por lo que sea se cuela, la hoja no debe quedar flotando. */
+  if (t.dataset.ir)      { vista = t.dataset.ir; fichaAbierta = null; hoja = null; }
   if (t.dataset.ficha)   { fichaAbierta = t.dataset.ficha; }
   if (t.dataset.volver)  { fichaAbierta = null; }
   if (t.dataset.comprar) { hoja = { tipo: 'comprar', ticker: t.dataset.comprar, monto: 0 }; }
   if (t.dataset.vender)  { hoja = { tipo: 'vender', ticker: t.dataset.vender, monto: 0 }; }
-  if (t.dataset.cerrar)  { hoja = null; }
+  if (t.dataset.cerrar)  { hoja = null; confirmandoBorrar = false; }
   if (t.dataset.atajo) {
     const foto = Cartera.calcular(estado, DATOS, dia);
     const mia = foto.posiciones.find(p => p.ticker === hoja.ticker);
