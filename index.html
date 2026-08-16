@@ -16,6 +16,8 @@
     /* El texto que va ENCIMA del verde. En noche el verde es claro y pide tinta
        oscura; en día el verde es oscuro y pide tinta blanca. */
     --sobreVerde:#06251a;
+    /* Azul de "dato": ni verde ni rojo, que ya significan subió y bajó. */
+    --dato:#7fb8ff; --dato_fondo:rgba(127,184,255,.10); --dato_borde:rgba(127,184,255,.26);
     --alto:56px;
   }
   :root[data-tema="claro"] {
@@ -25,6 +27,7 @@
     /* Verde y rojo más oscuros: los del tema noche no se leen sobre blanco. */
     --verde:#15803d; --rojo:#c62828; --ambar:#a16207; --gris:#64748b;
     --sobreVerde:#ffffff;
+    --dato:#0f5fbd; --dato_fondo:rgba(15,95,189,.07); --dato_borde:rgba(15,95,189,.22);
   }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent }
   html, body { margin:0; background:var(--afuera); color:var(--texto);
@@ -255,13 +258,13 @@
           padding:20px 18px calc(20px + env(safe-area-inset-bottom)) }
   .hoja h3 { margin:0 0 4px; font-size:20px; font-weight:800; letter-spacing:-.5px }
   .hoja .pie { color:var(--suave); font-size:13px; margin:0 0 12px }
-  /* El precio por acción, con su propio renglón y en grande: es lo que le da sentido a la
-     fracción de abajo ("te llevas 0.5386 acciones"). */
-  .precio_accion { display:flex; align-items:baseline; gap:8px; margin:0 0 14px;
-                   padding:10px 13px; border-radius:12px; background:var(--panel);
-                   border:1px solid var(--borde) }
-  .precio_accion b { font-size:22px; font-weight:800; letter-spacing:-.6px;
-                     font-variant-numeric:tabular-nums }
+  /* El precio por acción: centrado y en dos renglones, y con su propio color. No va en verde
+     ni en rojo a propósito — esos ya quieren decir "subió" y "bajó", y este no es un cambio,
+     es un dato. */
+  .precio_accion { margin:0 0 14px; padding:11px 13px; border-radius:12px; text-align:center;
+                   background:var(--dato_fondo); border:1px solid var(--dato_borde) }
+  .precio_accion b { display:block; font-size:26px; font-weight:800; letter-spacing:-.8px;
+                     line-height:1.1; color:var(--dato); font-variant-numeric:tabular-nums }
   .precio_accion i { font-style:normal; font-size:12.5px; color:var(--suave) }
   .montos { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px }
   .montos button { height:44px; border-radius:12px; background:var(--panel2);
@@ -1621,7 +1624,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0912';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0920';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -2427,7 +2430,7 @@ function pintarHoja(dia) {
         <!-- El precio por acción, grande. Lo pidió Marco el 16-ago-2026: es el número que
              conecta "meto $50" con "me toca media acción", y perdido en la línea gris de
              arriba no se leía. -->
-        <div class="precio_accion"><b>${dinero(px)}</b><i>cuesta una acción hoy</i></div>
+        <div class="precio_accion"><b>${dinero(px)}</b><i>por acción</i></div>
         <div class="montos">${atajos.map(a => `
           <button data-atajo="${a}" ${alcanza(a) ? '' : 'disabled'}
             ${alcanza(a) && Math.abs(valorAtajo(a) - monto) < 0.005 && monto > 0
