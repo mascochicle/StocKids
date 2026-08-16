@@ -1676,7 +1676,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-1254';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-1258';    // sello para saber si ya llegó la versión nueva
 
 /* A dónde va la pestaña "Visor" — el dinero de VERDAD, que es otra página.
    ⚠️ En desarrollo los archivos están en carpetas distintas y publicados quedan lado a lado,
@@ -2197,15 +2197,6 @@ function pintarAjustes(main, r) {
       ).join('')}</div>
     </div>
 
-    <div class="titulo">La app</div>
-    <div class="ajuste">
-      <h3>Versión</h3>
-      <p>Tienes la <b>${SK_VER}</b>. Ese número es la fecha y la hora en que se publicó.</p>
-      <button class="ancho" id="buscarAct">Buscar actualización</button>
-      <p style="margin-top:9px">Baja la última versión y recarga.
-        <b>No borra tu partida</b>: tu dinero no vive en la caché.</p>
-    </div>
-
     <div class="titulo">Tu partida</div>
     <div class="ajuste">
       <h3>${escapar(estado.nombre)}</h3>
@@ -2265,6 +2256,17 @@ function pintarAjustes(main, r) {
            <b>un respaldo a Descargas</b> por si te arrepientes — pero recuperarlo es cosa
            de tu papá, no de un botón.</p>
          <button class="ancho suave" data-borrar="quiza">Empezar de nuevo</button>`}
+    </div>
+
+    <!-- Hasta abajo, lo pidió Marco el 16-ago-2026. Es lo que menos se usa, y de paso deja
+         de ser el botón de borrar lo último que queda bajo el pulgar al terminar de bajar. -->
+    <div class="titulo">La app</div>
+    <div class="ajuste">
+      <h3>Versión</h3>
+      <p>Tienes la <b>${SK_VER}</b>. Ese número es la fecha y la hora en que se publicó.</p>
+      <button class="ancho" id="buscarAct">Buscar actualización</button>
+      <p style="margin-top:9px">Baja la última versión y recarga.
+        <b>No borra tu partida</b>: tu dinero no vive en la caché.</p>
     </div>`;
 
   /* Igual que en MasMoney: tirar la caché y desregistrar el service worker, porque ahí vive
