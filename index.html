@@ -143,12 +143,17 @@
   .fila .cuanto .mueve span { font-size:12.5px; font-weight:600; opacity:.7; margin-right:6px }
   .quieto { color:var(--suave) }
 
-  .tarjetas { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:10px 14px 0 }
+  /* Tres tarjetas: invertido, sin invertir y lo cobrado. La de "invertido" la pidió Marco el
+     16-ago-2026 — sin ella solo se veía el dinero parado, que es media foto. */
+  .tarjetas { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; padding:10px 14px 0 }
   .tarjeta { background:var(--panel); border:1px solid var(--borde); border-radius:14px;
-             padding:11px 13px }
-  .tarjeta i { font-style:normal; color:var(--suave); font-size:11.5px; display:block;
-               margin-bottom:2px }
-  .tarjeta b { font-size:17px; font-weight:700; font-variant-numeric:tabular-nums }
+             padding:10px 11px; min-width:0 }
+  .tarjeta i { font-style:normal; color:var(--suave); font-size:11px; display:block;
+               margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  /* El dinero se encoge si no cabe, en vez de desbordar la tarjeta: con NVIDIA una cartera
+     puede llegar a seis cifras. */
+  .tarjeta b { font-size:16px; font-weight:700; font-variant-numeric:tabular-nums;
+               display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
 
   .vacio { margin:14px; padding:22px 18px; text-align:center; background:var(--panel);
            border:1px dashed var(--borde); border-radius:16px }
@@ -1411,7 +1416,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0746';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0804';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1447,6 +1452,7 @@ function guardar() {
   localStorage.setItem(CLAVE, JSON.stringify(estado));
 }
 
+const CENTAVO_MONTO = 0.01;
 const NOMBRE_MAX = 18;
 
 /* Quita espacios de más y pone mayúscula inicial a cada palabra, PERO no toca el resto:
@@ -1674,8 +1680,9 @@ function pintarCartera(main, dia, r) {
     </div>
     <div class="leido" id="leido"></div>
     <div class="tarjetas">
+      <div class="tarjeta"><i>Invertido</i><b>${dinero(foto.enEmpresas)}</b></div>
       <div class="tarjeta"><i>Sin invertir</i><b>${dinero(foto.efectivo)}</b></div>
-      <div class="tarjeta"><i>Te han pagado por tener</i><b>${dinero(foto.dividendos)}</b></div>
+      <div class="tarjeta"><i>Te han pagado</i><b>${dinero(foto.dividendos)}</b></div>
     </div>
     ${foto.posiciones.length ? `
       <div class="titulo">Lo que tienes</div>
@@ -1948,6 +1955,17 @@ function pintarFicha(main, dia) {
 
 /* --- la hoja de comprar y vender ----------------------------------------- */
 
+/* El texto de "te llevas X acciones". Vive aparte porque hay que refrescarlo mientras
+   teclea, sin repintar la hoja entera. */
+function textoPrevio(comprando, monto, px, e, efectivo) {
+  if (!(monto > 0)) return 'Escribe cuánto, o toca uno de los botones de arriba.';
+  return comprando
+    ? `Te llevas <b>${(monto / px).toFixed(4)}</b> acciones de ${escapar(e.nombre)}.
+       Te quedan ${dinero(efectivo - monto)} sin invertir.`
+    : `Vendes <b>${(monto / px).toFixed(4)}</b> acciones y recibes
+       <b>${dinero(monto)}</b> en efectivo.`;
+}
+
 function pintarHoja(dia) {
   const viejo = $('.fondoNegro');
   if (viejo) viejo.remove();
@@ -1962,11 +1980,22 @@ function pintarHoja(dia) {
   const comprando = hoja.tipo === 'comprar';
   const tope = comprando ? foto.efectivo : (mia ? mia.valor : 0);
   const monto = Math.min(hoja.monto || 0, tope);
+  /*
+   * Al COMPRAR van montos fijos y NO hay "Todo". Lo pidió Marco el 16-ago-2026 y encaja con
+   * la idea de la app: "Todo" es un botón que invita a irse con todo de un tirón: se pica,
+   * no se piensa. Un monto fijo obliga a decidir cuánto.
+   *
+   * Al VENDER sí queda "Todo": cerrar una posición completa es una decisión legítima, y
+   * dejarlo sin forma de salir sería peor.
+   */
   const atajos = comprando
-    ? [25, 50, 100, 'Todo'] : ['¼', '½', '¾', 'Todo'];
+    ? [25, 50, 100, 200] : ['¼', '½', '¾', 'Todo'];
   const valorAtajo = (a) => comprando
-    ? (a === 'Todo' ? tope : Math.min(a, tope))
+    ? Math.min(a, tope)
     : tope * ({ '¼': .25, '½': .5, '¾': .75, 'Todo': 1 }[a]);
+  // Un atajo de más de lo que tiene se apaga en vez de recortarse en silencio: tocar "$200"
+  // con $37 en la bolsa y que meta $37 se siente a error.
+  const alcanza = (a) => !comprando || a <= tope + CENTAVO_MONTO;
 
   document.getElementById('app').insertAdjacentHTML('beforeend', `
     <div class="fondoNegro" data-cerrar="1">
@@ -1976,26 +2005,22 @@ function pintarHoja(dia) {
           ? `Tienes ${dinero(foto.efectivo)} sin invertir · ${dinero(px)} por acción`
           : `Tienes ${mia ? mia.acciones.toFixed(2) : 0} acciones que valen ${dinero(tope)}`}</p>
         <div class="montos">${atajos.map(a => `
-          <button data-atajo="${a}"
-            ${Math.abs(valorAtajo(a) - monto) < 0.005 && monto > 0 ? 'class="elegido"' : ''}>
-            ${comprando && a !== 'Todo' ? '$' + a : a}</button>`).join('')}</div>
+          <button data-atajo="${a}" ${alcanza(a) ? '' : 'disabled'}
+            ${alcanza(a) && Math.abs(valorAtajo(a) - monto) < 0.005 && monto > 0
+              ? 'class="elegido"' : ''}>
+            ${comprando ? '$' + a : a}</button>`).join('')}</div>
         <div class="cuanto_input">
           <span>$</span>
           <input type="text" inputmode="decimal" id="montoInput"
                  value="${monto ? monto.toFixed(2) : ''}" placeholder="0.00">
         </div>
-        <div class="previo">${monto > 0
-          ? (comprando
-            ? `Te llevas <b>${(monto / px).toFixed(4)}</b> acciones de ${escapar(e.nombre)}.
-               Te quedan ${dinero(foto.efectivo - monto)} sin invertir.`
-            : `Vendes <b>${(monto / px).toFixed(4)}</b> acciones y recibes
-               <b>${dinero(monto)}</b> en efectivo.`)
-          : 'Escribe cuánto, o toca uno de los botones de arriba.'}</div>
+        <div class="previo" id="previo">${
+          textoPrevio(comprando, monto, px, e, foto.efectivo)}</div>
         <div class="error">${hoja.error ? escapar(hoja.error) : ''}</div>
         <div class="acciones" style="padding:0">
           <button class="boton vender" data-cerrar="1">Cancelar</button>
-          <button class="boton comprar" data-hacer="1" ${monto > 0 ? '' : 'disabled'}>
-            ${comprando ? 'Comprar' : 'Vender'}</button>
+          <button class="boton comprar" id="botonHacer" data-hacer="1"
+            ${monto > 0 ? '' : 'disabled'}>${comprando ? 'Comprar' : 'Vender'}</button>
         </div>
       </div>
     </div>`);
@@ -2086,7 +2111,7 @@ document.addEventListener('click', (ev) => {
     const tope = hoja.tipo === 'comprar' ? foto.efectivo : (mia ? mia.valor : 0);
     const a = t.dataset.atajo;
     hoja.monto = hoja.tipo === 'comprar'
-      ? (a === 'Todo' ? tope : Math.min(+a, tope))
+      ? Math.min(+a, tope)
       : tope * ({ '¼': .25, '½': .5, '¾': .75, 'Todo': 1 }[a]);
     hoja.error = null;
   }
@@ -2098,10 +2123,29 @@ document.addEventListener('input', (ev) => {
   if (ev.target.id !== 'montoInput' || !hoja) return;
   hoja.monto = parseFloat(ev.target.value.replace(',', '.')) || 0;
   hoja.error = null;
-  // A propósito NO se repinta aquí: repintar mientras escribe le quitaría el teclado.
-  // El previo se actualiza al soltar (blur) o al tocar un botón.
+
+  /*
+   * ⚠️ NO se repinta la hoja aquí: eso le tumbaría el teclado a media palabra. Pero tampoco
+   * se puede dejar el botón como estaba: si se queda deshabilitado, el niño escribe 200,
+   * toca "Comprar" y NO PASA NADA — el primer toque solo quita el foco del campo y tiene que
+   * volver a tocar. Se descubrió probándolo el 16-ago-2026.
+   *
+   * La salida es tocar a mano las dos únicas cosas que cambian: el botón y el previo.
+   */
+  const dia = reloj().dia;
+  const e = DATOS.empresas.find(x => x.ticker === hoja.ticker);
+  const px = Cartera.precio(DATOS, hoja.ticker, dia);
+  const foto = Cartera.calcular(estado, DATOS, dia);
+  const mia = foto.posiciones.find(p => p.ticker === hoja.ticker);
+  const comprando = hoja.tipo === 'comprar';
+  const tope = comprando ? foto.efectivo : (mia ? mia.valor : 0);
+  const monto = Math.min(hoja.monto, tope);
+
+  const boton = $('#botonHacer');
+  if (boton) boton.disabled = !(monto > 0);
+  const previo = $('#previo');
+  if (previo) previo.innerHTML = textoPrevio(comprando, monto, px, e, foto.efectivo);
 });
-document.addEventListener('change', (ev) => { if (ev.target.id === 'montoInput') pintar(); });
 
 /* --- el latido ------------------------------------------------------------ */
 
