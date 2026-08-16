@@ -277,7 +277,7 @@
     <h2>Ajustes</h2>
     <p class="sub">De quién es, en qué está y cómo se comparte.</p>
 
-    <label class="campo"><span>¿De quién es este dinero?</span>
+    <label class="campo" id="campoNombre"><span>¿De quién es este dinero?</span>
       <input type="text" id="aNombre" maxlength="24" autocomplete="off"></label>
 
     <!-- Todo lo de abajo solo aparece con la captura prendida: sin ella no hay nada que
@@ -321,7 +321,7 @@
 
 <script>
 /* ===== cartera.json horneado, 1 KB ===== */
-const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 16-ago-2026 dentro de la app de GBM que SPYL N cotizaba 3.71% arriba de su valor real, mueve la décima parte de dinero que VUAA N, y su precio de ese día ERA su máximo de 52 semanas. VUAA N pegó al 0.17%. Ver CLAUDE.md.","instrumento":"VUAA N","movimientos":[]};
+const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 16-ago-2026 dentro de la app de GBM que SPYL N cotizaba 3.71% arriba de su valor real, mueve la décima parte de dinero que VUAA N, y su precio de ese día ERA su máximo de 52 semanas. VUAA N pegó al 0.17%. Ver CLAUDE.md.","nombre":"Patrizio y Lucca","instrumento":"VUAA N","movimientos":[{"f":"2026-08-16","t":"dep","monto":50}]};
 </script>
 <script>
 /* ===== visor.json horneado, 52 KB ===== */
@@ -1093,7 +1093,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260816-1229';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260816-1240';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
@@ -1338,6 +1338,17 @@ function graficaDinero(iHoy) {
     VENTANA = { desde: Math.max(primero, v.desde), hasta: v.hasta };
   }
 
+  /*
+   * ⚠️ El último punto se mide en la fecha de HOY, no en la del último precio.
+   *
+   * Los precios solo existen en días hábiles, así que el índice de "hoy" apunta al viernes
+   * anterior si hoy es domingo. Evaluando la cartera en esa fecha, cualquier movimiento del
+   * fin de semana todavía no ha pasado: la gráfica daba CERO mientras el total de arriba
+   * decía $50, con el mismísimo estado. Se cachó el 16-ago-2026 con el primer depósito,
+   * hecho en domingo.
+   */
+  const fechaDe = (i) => (i >= iHoy ? HOY() : INST.fecha(i));
+
   const dibujo = (ventana) => {
     const indices = Grafica.muestreoVentana(
       Math.max(primero, ventana.desde), Math.min(iHoy, ventana.hasta));
@@ -1346,9 +1357,9 @@ function graficaDinero(iHoy) {
       fecha: (i) => INST.fecha(i),
       series: [
         { nombre: 'Lo que metió', clase: 'metido',
-          valor: (i) => Visor.calcular(E, INST, INST.fecha(i)).metido },
+          valor: (i) => Visor.calcular(E, INST, fechaDe(i)).metido },
         { nombre: 'Su dinero', clase: 'tuya',
-          valor: (i) => Visor.calcular(E, INST, INST.fecha(i),
+          valor: (i) => Visor.calcular(E, INST, fechaDe(i),
                                        i >= iHoy ? PRECIO_HOY : undefined).total },
       ],
     });
@@ -1556,13 +1567,19 @@ function enlaceParaCompartir() {
   const HORNEADA = HORNEADO_CARTERA;
 
   E = compartido || capturado() || {
-    nombre: '',
+    nombre: HORNEADA.nombre || '',
     instrumento: HORNEADA.instrumento || DATOS.instrumentos[0].clave,
     movimientos: Visor.enOrden(HORNEADA.movimientos || []),
   };
 
-  // El nombre sí es de cada teléfono: su hijo escribe el suyo y ahí se queda.
-  E.nombre = E.nombre || localStorage.getItem(CLAVE_NOMBRE) || '';
+  /*
+   * El nombre viene horneado y es FIJO: la cuenta es de los dos hermanos, no de quien traiga
+   * el teléfono en la mano. Marco lo pidió el 16-ago-2026 ("ponle fijo es el dinero de
+   * Patrizio y Lucca"). Si algún día se vacía en `cartera.json`, cae solo al comportamiento
+   * viejo: lo pregunta una vez y lo guarda en ese teléfono.
+   */
+  const NOMBRE_FIJO = !!HORNEADA.nombre;
+  if (!NOMBRE_FIJO) E.nombre = E.nombre || localStorage.getItem(CLAVE_NOMBRE) || '';
   const estrenando = !E.nombre;
   INST = DATOS.de(E.instrumento);
 
@@ -1626,6 +1643,10 @@ function enlaceParaCompartir() {
   }   /* fin de CAPTURA_VISIBLE */
 
   /* --- ajustes --- */
+  // Con el nombre fijo no hay nada que teclear: se quita el campo en vez de dejarlo
+  // editable y que el cambio se pierda al publicar.
+  $('campoNombre').classList.toggle('oculto', NOMBRE_FIJO);
+
   $('irAjustes').addEventListener('click', () => {
     $('aNombre').value = E.nombre;
     if (CAPTURA_VISIBLE) {
