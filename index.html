@@ -254,7 +254,15 @@
           border-top-right-radius:22px; border-top:1px solid var(--borde);
           padding:20px 18px calc(20px + env(safe-area-inset-bottom)) }
   .hoja h3 { margin:0 0 4px; font-size:20px; font-weight:800; letter-spacing:-.5px }
-  .hoja .pie { color:var(--suave); font-size:13px; margin:0 0 16px }
+  .hoja .pie { color:var(--suave); font-size:13px; margin:0 0 12px }
+  /* El precio por acción, con su propio renglón y en grande: es lo que le da sentido a la
+     fracción de abajo ("te llevas 0.5386 acciones"). */
+  .precio_accion { display:flex; align-items:baseline; gap:8px; margin:0 0 14px;
+                   padding:10px 13px; border-radius:12px; background:var(--panel);
+                   border:1px solid var(--borde) }
+  .precio_accion b { font-size:22px; font-weight:800; letter-spacing:-.6px;
+                     font-variant-numeric:tabular-nums }
+  .precio_accion i { font-style:normal; font-size:12.5px; color:var(--suave) }
   .montos { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px }
   .montos button { height:44px; border-radius:12px; background:var(--panel2);
                    border:1px solid var(--borde); color:var(--texto); font:inherit;
@@ -1608,7 +1616,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0857';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0900';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -2277,8 +2285,12 @@ function pintarHoja(dia) {
       <div class="hoja" data-nocerrar="1">
         <h3>${comprando ? 'Comprar' : 'Vender'} ${escapar(e.nombre)}</h3>
         <p class="pie">${comprando
-          ? `Tienes ${dinero(foto.efectivo)} sin invertir · ${dinero(px)} por acción`
+          ? `Tienes ${dinero(foto.efectivo)} sin invertir`
           : `Tienes ${mia ? mia.acciones.toFixed(2) : 0} acciones que valen ${dinero(tope)}`}</p>
+        <!-- El precio por acción, grande. Lo pidió Marco el 16-ago-2026: es el número que
+             conecta "meto $50" con "me toca media acción", y perdido en la línea gris de
+             arriba no se leía. -->
+        <div class="precio_accion"><b>${dinero(px)}</b><i>cuesta una acción hoy</i></div>
         <div class="montos">${atajos.map(a => `
           <button data-atajo="${a}" ${alcanza(a) ? '' : 'disabled'}
             ${alcanza(a) && Math.abs(valorAtajo(a) - monto) < 0.005 && monto > 0
