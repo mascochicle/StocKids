@@ -5,20 +5,39 @@
 <meta name="theme-color" content="#0e1116">
 <title>StocKids</title>
 <style>
+  /* Oscuro es el de casa. El claro se elige en Ajustes, y "Sistema" sigue al teléfono.
+     TODO color estructural pasa por una variable justamente para que el tema sea un solo
+     cambio de arriba y no haya que perseguir colores sueltos por el archivo. */
   :root {
     --fondo:#0e1116; --panel:#161b23; --panel2:#1c232d; --borde:#232b36;
+    --afuera:#05070a; --raya:#1a212b;
     --texto:#e8edf2; --suave:#8b9bad; --tenue:#5b6b7d;
     --verde:#4ade80; --rojo:#f87171; --ambar:#f0b429; --gris:#7c8ea3;
+    /* El texto que va ENCIMA del verde. En noche el verde es claro y pide tinta
+       oscura; en día el verde es oscuro y pide tinta blanca. */
+    --sobreVerde:#06251a;
     --alto:56px;
   }
+  :root[data-tema="claro"] {
+    --fondo:#ffffff; --panel:#f5f7fa; --panel2:#e9edf3; --borde:#dde3ea;
+    --afuera:#e9edf3; --raya:#eef1f5;
+    --texto:#111820; --suave:#5b6b7d; --tenue:#8b9bad;
+    /* Verde y rojo más oscuros: los del tema noche no se leen sobre blanco. */
+    --verde:#15803d; --rojo:#c62828; --ambar:#a16207; --gris:#64748b;
+    --sobreVerde:#ffffff;
+  }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent }
-  html, body { margin:0; background:#05070a; color:var(--texto);
+  html, body { margin:0; background:var(--afuera); color:var(--texto);
     font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif }
-  body { display:flex; justify-content:center; min-height:100dvh }
+  /* ⚠️ ALTURA FIJA, no `min-height`. Con `min-height` el contenedor crece con el contenido,
+     el `overflow` de `main` nunca entra, y la página entera se desplaza llevándose la barra
+     de pestañas. Lo cachó Marco el 15-ago-2026: la barra se le corría al bajar. */
+  html, body { height:100dvh; overflow:hidden }
+  body { display:flex; justify-content:center }
 
   /* Probar SIEMPRE a 480 px: es el ancho real de su S25 Ultra, no 393. */
   #app { width:480px; max-width:100%; background:var(--fondo); position:relative;
-         display:flex; flex-direction:column; min-height:100dvh; overflow:hidden }
+         display:flex; flex-direction:column; height:100dvh; overflow:hidden }
 
   /* --- encabezado --- */
   header { padding:14px 18px 10px; display:flex; align-items:flex-start; gap:10px }
@@ -51,7 +70,7 @@
   .lienzo { padding:10px 10px 0 }
   svg.grafica { width:100%; aspect-ratio:320/180; display:block; touch-action:none }
   .raya { stroke:var(--borde); stroke-width:1 }
-  .raya.tenue { stroke:#1a212b }
+  .raya.tenue { stroke:var(--raya) }
   .cifra_eje, text.cifra { fill:var(--suave) }
   text.anio { fill:var(--tenue) }
   .linea { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round }
@@ -73,7 +92,7 @@
   .vistas button { flex:1; height:30px; border-radius:9px; border:1px solid var(--borde);
                    background:var(--panel); color:var(--suave); font:inherit; font-size:12.5px;
                    font-weight:650; cursor:pointer }
-  .vistas button.puesta { background:var(--panel2); color:var(--texto); border-color:#33404f }
+  .vistas button.puesta { background:var(--panel2); color:var(--texto); border-color:var(--tenue) }
 
   .claves { display:flex; gap:13px; flex-wrap:wrap; padding:6px 18px 0; font-size:12px;
             color:var(--suave) }
@@ -166,7 +185,7 @@
   .acciones { display:flex; gap:10px; padding:16px 18px 0 }
   button.boton { flex:1; height:48px; border-radius:14px; border:none; font:inherit;
                  font-size:15.5px; font-weight:700; cursor:pointer }
-  .comprar { background:var(--verde); color:#06251a }
+  .comprar { background:var(--verde); color:var(--sobreVerde) }
   .vender  { background:var(--panel2); color:var(--texto); border:1px solid var(--borde) }
   button:disabled { opacity:.4; cursor:default }
   button.boton:active { transform:translateY(1px) }
@@ -192,7 +211,7 @@
   .montos button { height:44px; border-radius:12px; background:var(--panel2);
                    border:1px solid var(--borde); color:var(--texto); font:inherit;
                    font-weight:650; cursor:pointer }
-  .montos button.elegido { background:var(--verde); color:#06251a; border-color:var(--verde) }
+  .montos button.elegido { background:var(--verde); color:var(--sobreVerde); border-color:var(--verde) }
   .cuanto_input { display:flex; align-items:center; gap:8px; background:var(--panel);
                   border:1px solid var(--borde); border-radius:13px; padding:12px 14px;
                   margin-bottom:12px }
@@ -204,7 +223,24 @@
   .previo b { color:var(--texto) }
   .error { color:var(--rojo); font-size:13px; margin-bottom:12px; min-height:18px }
 
-  .sello_ver { text-align:center; color:#2a3442; font-size:10px; padding:10px 0 4px;
+  /* --- ajustes --- */
+  .ajuste { margin:0 14px 8px; background:var(--panel); border:1px solid var(--borde);
+            border-radius:14px; padding:13px 15px }
+  .ajuste h3 { margin:0 0 3px; font-size:15px; font-weight:700 }
+  .ajuste p { margin:0; color:var(--suave); font-size:12.5px; line-height:1.45 }
+  .ajuste p b { color:var(--texto); font-variant-numeric:tabular-nums }
+  .temas { display:flex; gap:7px; margin-top:11px }
+  .temas button { flex:1; height:38px; border-radius:11px; border:1px solid var(--borde);
+                  background:var(--panel2); color:var(--suave); font:inherit; font-size:13px;
+                  font-weight:650; cursor:pointer }
+  .temas button.puesta { background:var(--verde); color:var(--fondo); border-color:var(--verde) }
+  .ajuste button.ancho { width:100%; height:44px; margin-top:11px; border-radius:12px;
+                         border:1px solid var(--borde); background:var(--panel2);
+                         color:var(--texto); font:inherit; font-size:14.5px; font-weight:650;
+                         cursor:pointer }
+  .ajuste button.ancho:disabled { opacity:.5 }
+
+  .sello_ver { text-align:center; color:var(--tenue); opacity:.45; font-size:10px; padding:10px 0 4px;
                letter-spacing:.5px; user-select:none }
 
   /* --- de quién es esto --- */
@@ -231,7 +267,7 @@
   .bienvenida input:focus { border-color:var(--verde) }
   .bienvenida .aguas { color:var(--tenue); font-size:12px; line-height:1.5; margin:12px 0 0 }
   .bienvenida button { margin-top:20px; width:100%; height:52px; border-radius:15px;
-                       border:none; background:var(--verde); color:#06251a; font:inherit;
+                       border:none; background:var(--verde); color:var(--sobreVerde); font:inherit;
                        font-size:16px; font-weight:800; cursor:pointer }
   .bienvenida button:disabled { opacity:.35; cursor:default }
 </style>
@@ -254,6 +290,7 @@
   <nav>
     <button data-ir="cartera" class="puesto"><span class="icono">◈</span>Mi dinero</button>
     <button data-ir="mercado"><span class="icono">≡</span>La bolsa</button>
+    <button data-ir="ajustes"><span class="icono">⚙</span>Ajustes</button>
   </nav>
 </div>
 
@@ -1287,7 +1324,47 @@ function circulo(ticker, nombre, clase = '') {
    apuntaban a semanas y ahora son días: leer una partida vieja daría precios de otra época.
    Subir la versión la descarta limpio en vez de mostrar basura. */
 const CLAVE = 'stockids.v2';
-const SK_VER = '20260815-2241';    // sello para saber si ya llegó la versión nueva
+const CLAVE_TEMA = 'stockids.tema';    // aparte de la partida: es una preferencia, no estado
+
+/*
+ * El tema. "sistema" sigue al teléfono; los otros dos mandan. Se guarda aparte de la partida
+ * a propósito: borrar la partida no debería cambiarle el color, y cambiar el color no debería
+ * tocar sus movimientos.
+ *
+ * Como en MasMoney, se revisa por DOS caminos: el evento de la media query y otra revisada al
+ * volver a la app. Si Android cambia a oscuro con StocKids en segundo plano, el evento puede
+ * no llegar nunca.
+ */
+const sistemaOscuro = () =>
+  !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+const temaElegido = () => localStorage.getItem(CLAVE_TEMA) || 'sistema';
+const temaEfectivo = () => {
+  const t = temaElegido();
+  return t === 'sistema' ? (sistemaOscuro() ? 'oscuro' : 'claro') : t;
+};
+function aplicarTema() {
+  const t = temaEfectivo();
+  document.documentElement.setAttribute('data-tema', t);
+  const meta = document.querySelector('meta[name=theme-color]');
+  if (meta) meta.setAttribute('content',
+    getComputedStyle(document.documentElement).getPropertyValue('--fondo').trim());
+}
+let temaVisto = null;
+function revisarTemaDelSistema() {
+  if (temaElegido() !== 'sistema') return;
+  const osc = sistemaOscuro();
+  if (osc === temaVisto) return;          // no cambió: no repintar de gratis
+  temaVisto = osc;
+  aplicarTema();
+  if (vista === 'ajustes') pintar();
+}
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(
+    revisarTemaDelSistema);
+}
+aplicarTema();
+const SK_VER = '20260816-0737';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1498,6 +1575,7 @@ function pintar() {
   const main = $('#vista');
   if (fichaAbierta) pintarFicha(main, dia);
   else if (vista === 'mercado') pintarMercado(main, dia);
+  else if (vista === 'ajustes') pintarAjustes(main, r);
   else pintarCartera(main, dia, r);
 
   main.insertAdjacentHTML('beforeend', `<div class="sello_ver">StocKids ${SK_VER}</div>`);
@@ -1604,6 +1682,65 @@ const serieMetido = () => _metido || (_metido = Array.from(
   { length: ULTIMO - ARRANQUE + 1 },
   (_, k) => Cartera.CAPITAL_INICIAL
     + Cartera.aportacionesA(DATOS, ARRANQUE + k) * Cartera.APORTACION));
+
+/* --- vista: ajustes ------------------------------------------------------ */
+
+function pintarAjustes(main) {
+  const elegido = temaElegido();
+  const opciones = [['oscuro', 'Noche'], ['claro', 'Día'], ['sistema', 'Sistema']];
+
+  main.innerHTML = `
+    <div class="titulo">Cómo se ve</div>
+    <div class="ajuste">
+      <h3>Color</h3>
+      <p>${elegido === 'sistema'
+        ? `Sigue al teléfono · ahora está en <b>${temaEfectivo() === 'oscuro' ? 'noche' : 'día'}</b>`
+        : 'Lo escogiste tú, no cambia solo.'}</p>
+      <div class="temas">${opciones.map(([clave, nombre]) =>
+        `<button data-tema="${clave}" class="${elegido === clave ? 'puesta' : ''}">${nombre}</button>`
+      ).join('')}</div>
+    </div>
+
+    <div class="titulo">La app</div>
+    <div class="ajuste">
+      <h3>Versión</h3>
+      <p>Tienes la <b>${SK_VER}</b>. Ese número es la fecha y la hora en que se publicó.</p>
+      <button class="ancho" id="buscarAct">Buscar actualización</button>
+      <p style="margin-top:9px">Baja la última versión y recarga.
+        <b>No borra tu partida</b>: tu dinero no vive en la caché.</p>
+    </div>
+
+    <div class="titulo">Tu partida</div>
+    <div class="ajuste">
+      <h3>${escapar(estado.nombre)}</h3>
+      <p>Empezaste el <b>${new Date(estado.ancla).toLocaleDateString('es-MX',
+          { day: 'numeric', month: 'long', year: 'numeric' })}</b> y llevas
+        <b>${estado.movimientos.length}</b> ${estado.movimientos.length === 1
+          ? 'movimiento' : 'movimientos'}.</p>
+      <p style="margin-top:9px">Todo vive en este teléfono y no sale de aquí.
+        No hay botón de empezar de nuevo, y es a propósito: en la bolsa de verdad tampoco
+        se puede deshacer.</p>
+    </div>`;
+
+  /* Igual que en MasMoney: tirar la caché y desregistrar el service worker, porque ahí vive
+     el index.html viejo. El parámetro al recargar obliga a pedirle el archivo al servidor. */
+  $('#buscarAct').addEventListener('click', async () => {
+    const b = $('#buscarAct');
+    b.textContent = 'Buscando…';
+    b.disabled = true;
+    try {
+      if (window.caches) {
+        const llaves = await caches.keys();
+        await Promise.all(llaves.map(k => caches.delete(k)));
+      }
+      if (navigator.serviceWorker) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch (e) { /* si algo falla, se recarga igual */ }
+    location.replace(location.pathname + '?act=' + Date.now());
+  });
+}
 
 /* --- vista: la bolsa ----------------------------------------------------- */
 
@@ -1874,11 +2011,16 @@ document.addEventListener('click', (ev) => {
   // adentro siguen ganando porque están más cerca del toque.
   const t = ev.target.closest('[data-ir],[data-ficha],[data-volver],[data-comprar],' +
                               '[data-vender],[data-cerrar],[data-atajo],[data-hacer],' +
-                              '[data-nombre],[data-vista],[data-nocerrar]');
+                              '[data-nombre],[data-vista],[data-tema],[data-nocerrar]');
   if (!t) return;
 
   if (t.dataset.nocerrar) return;
   if (t.dataset.nombre)  { hoja = { tipo: 'nombre' }; }
+  if (t.dataset.tema) {
+    localStorage.setItem(CLAVE_TEMA, t.dataset.tema);
+    temaVisto = sistemaOscuro();
+    aplicarTema();
+  }
   if (t.dataset.vista) {
     if (t.dataset.donde === 'ficha') vistaFicha = t.dataset.vista;
     else vistaCartera = t.dataset.vista;
@@ -1926,8 +2068,12 @@ function latir() {
   }
 }
 setInterval(latir, 30000);                                   // nada de rAF: trampa #4
-document.addEventListener('visibilitychange', () => { if (!document.hidden) latir(); });
-window.addEventListener('focus', latir);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  revisarTemaDelSistema();
+  latir();
+});
+window.addEventListener('focus', () => { revisarTemaDelSistema(); latir(); });
 
 /* `ESPIA` se lee UNA vez al cargar, y cambiar solo el `#` no recarga la página: sin esto,
    pegarle `#dia=272` a una pestaña ya abierta no hace nada y encima sigue guardando
