@@ -72,17 +72,22 @@
 
   /* --- resumen --- */
   .resumen { padding:2px 18px 0 }
-  .resumen .cifra { font-size:40px; font-weight:800; letter-spacing:-1.8px; line-height:1.05;
-                    font-variant-numeric:tabular-nums }
+  /* `clamp` con `cqi` no: el total se encoge solo cuando la cartera llega a seis cifras, para
+     que nunca empuje al número verde fuera de la pantalla. */
+  .resumen .cifra { font-size:clamp(26px, 8.5vw, 40px); font-weight:800; letter-spacing:-1.8px;
+                    line-height:1.05; font-variant-numeric:tabular-nums; white-space:nowrap;
+                    overflow:hidden; text-overflow:ellipsis }
   .cambio { font-size:14px; font-weight:600; margin-top:3px }
   .sube { color:var(--verde) } .baja { color:var(--rojo) }
   .cambio small { color:var(--suave); font-weight:400 }
-  /* Lo invertido, en verde y más grande que las tarjetas de abajo (16 px): es el dinero que
-     está trabajando, y Marco lo quiso junto al total. */
-  .invertido { margin-top:5px; font-size:19px; font-weight:750; color:var(--verde);
-               font-variant-numeric:tabular-nums }
-  .invertido i { font-style:normal; font-size:13px; font-weight:600; color:var(--suave);
-                 margin-left:3px }
+  /* Lo invertido va a la DERECHA del total, en verde. Es el dinero que está trabajando, y
+     Marco lo quiso ahí, a la altura de la cifra grande. */
+  .resumen_fila { display:flex; align-items:center; gap:12px }
+  .resumen_izq { flex:1; min-width:0 }
+  .invertido { flex:none; text-align:right; line-height:1.15 }
+  .invertido b { display:block; font-size:23px; font-weight:800; color:var(--verde);
+                 letter-spacing:-.7px; font-variant-numeric:tabular-nums; white-space:nowrap }
+  .invertido i { font-style:normal; font-size:13px; font-weight:600; color:var(--suave) }
 
   .lienzo { padding:10px 10px 0 }
   svg.grafica { width:100%; aspect-ratio:320/180; display:block; touch-action:none }
@@ -1589,7 +1594,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0839';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0846';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1838,15 +1843,19 @@ function pintarCartera(main, dia, r) {
   main.innerHTML = `
     ${avisos.join('')}
     <div class="resumen">
-      <button class="dueno" data-nombre="1">El dinero de <u>${escapar(estado.nombre)}</u></button>
-      <div class="cifra" id="totalGrande">${dinero(foto.total)}</div>
+      <div class="resumen_fila">
+        <div class="resumen_izq">
+          <button class="dueno" data-nombre="1">El dinero de <u>${escapar(estado.nombre)}</u></button>
+          <div class="cifra" id="totalGrande">${dinero(foto.total)}</div>
+        </div>
+        <div class="invertido"><b>${dinero(foto.enEmpresas)}</b><i>invertido</i></div>
+      </div>
       <div class="cambio ${quieto ? 'quieto' : clase(foto.ganancia)}" id="cambioGrande">
         ${quieto ? 'Todavía sin cambios'
           : `${foto.ganancia > 0 ? '▲' : '▼'} ${dinero(Math.abs(foto.ganancia))}
              (${pct(foto.gananciaPct)})`}
         <small>sobre los ${dinero(foto.aportado)} que has metido</small>
       </div>
-      <div class="invertido">${dinero(foto.enEmpresas)} <i>invertido</i></div>
     </div>
     <div class="lienzo"><svg class="grafica" id="lienzoCartera"></svg></div>
     <div class="vistas">${Grafica.vistasDisponibles().map(v =>
