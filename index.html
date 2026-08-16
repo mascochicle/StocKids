@@ -395,6 +395,7 @@
     <button data-ir="cartera" class="puesto"><span class="icono">◈</span>Mi dinero</button>
     <button data-ir="mercado"><span class="icono">≡</span>La bolsa</button>
     <button data-ir="ajustes"><span class="icono">⚙</span>Ajustes</button>
+    <button data-salir="1"><span class="icono">◉</span>Visor</button>
   </nav>
 </div>
 
@@ -1664,7 +1665,14 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-1021';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-1150';    // sello para saber si ya llegó la versión nueva
+
+/* A dónde va la pestaña "Visor" — el dinero de VERDAD, que es otra página.
+   ⚠️ En desarrollo los archivos están en carpetas distintas y publicados quedan lado a lado,
+   así que `publicar.py` reescribe esta línea y TRUENA si no la encuentra. Sin eso, la
+   pestaña llevaría a una ruta que no existe en el teléfono y nadie se enteraría hasta que
+   el niño la picara. */
+const A_VISOR = './visor.html';
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -2635,8 +2643,12 @@ document.addEventListener('click', (ev) => {
   const t = ev.target.closest('[data-ir],[data-ficha],[data-volver],[data-comprar],' +
                               '[data-vender],[data-cerrar],[data-atajo],[data-hacer],' +
                               '[data-nombre],[data-vista],[data-tema],[data-borrar],' +
-                              '[data-copia],[data-importar],[data-recado],[data-nocerrar]');
+                              '[data-copia],[data-importar],[data-recado],[data-nocerrar],' +
+                              '[data-salir]');
   if (!t) return;
+
+  // El visor es otra página, no otra vista: aquí se sale y no hay nada más que repintar.
+  if (t.dataset.salir) { location.href = A_VISOR; return; }
 
   if (t.dataset.nocerrar) return;
   if (t.dataset.nombre)  { hoja = { tipo: 'nombre' }; }

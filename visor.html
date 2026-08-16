@@ -1,0 +1,1686 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>Mi dinero</title>
+
+<!--
+  El visor del dinero de VERDAD. Hermano de StocKids, pero no es lo mismo:
+
+    StocKids   simulador · corre 12x · precios de 2008-2026 · el niño compra de mentiras
+    este       real      · corre 1x  · un ETF irlandés      · Marco captura lo que pasó
+
+  Por eso aquí no hay `tiempo.js`: no hay ancla ni ritmo que derivar, la fecha de hoy sale
+  del calendario. Lo que sí se hereda es la disciplina: NO SE GUARDA NINGÚN SALDO. Solo la
+  lista de movimientos, y todo lo demás se deriva (ver motor/visor.js).
+-->
+
+<style>
+  :root {
+    color-scheme: dark;
+    --fondo:#0e1116; --panel:#161b23; --panel2:#1b222c; --borde:#232b36;
+    --texto:#e8edf2; --suave:#8b9bad; --tenue:#5d6b7c;
+    --verde:#4ade80; --sobreVerde:#0b2016;   /* el verde es claro: pide tinta oscura */
+    --rojo:#f87171; --ambar:#f0b429; --azul:#60a5fa;
+    --sombra:0 10px 30px rgba(0,0,0,.45);
+  }
+  :root[data-tema="dia"] {
+    color-scheme: light;
+    --fondo:#f4f6f9; --panel:#ffffff; --panel2:#eef1f6; --borde:#dfe4ec;
+    --texto:#111820; --suave:#5d6b7c; --tenue:#8b9bad;
+    --verde:#15803d; --sobreVerde:#ffffff;   /* en día el verde es oscuro: tinta blanca */
+    --rojo:#c02626; --ambar:#a16207; --azul:#1d4ed8;
+    --sombra:0 10px 30px rgba(16,24,40,.12);
+  }
+
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent }
+
+  /* ⚠️ `height`, NUNCA `min-height`. Con min-height el contenedor crece con el contenido, el
+     overflow de <main> no entra nunca y la página entera se desplaza llevándose la barra de
+     abajo. Marco lo cachó en StocKids con una captura. `position:fixed` lo remacha. */
+  html, body { height:100% }
+  body {
+    position:fixed; inset:0; margin:0;
+    background:var(--fondo); color:var(--texto);
+    font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+
+  main { flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch;
+         padding:0 0 24px }
+  .hoja { max-width:520px; margin:0 auto; padding:0 16px }
+
+  /* --- encabezado --- */
+  header { padding:14px 16px 0; max-width:520px; margin:0 auto; width:100% }
+  .cabe { display:flex; align-items:flex-start; justify-content:space-between; gap:10px }
+  .quien { font-size:13.5px; color:var(--suave); font-weight:600 }
+  .quien b { color:var(--texto) }
+  .icono { width:36px; height:36px; border-radius:50%; border:1px solid var(--borde);
+           background:var(--panel); color:var(--suave); display:grid; place-items:center;
+           font-size:17px; cursor:pointer; flex:none }
+  .cuando { font-size:12px; color:var(--tenue); margin-top:2px }
+
+  .granTotal { font-size:40px; font-weight:800; letter-spacing:-1.8px; margin:10px 0 0;
+               line-height:1.05 }
+  .cambio { font-size:14px; font-weight:700; margin-top:3px }
+  .sube { color:var(--verde) } .baja { color:var(--rojo) }
+  .cambio small { color:var(--suave); font-weight:500 }
+
+  /* --- gráfica --- */
+  .lienzo { margin-top:10px }
+  /* La proporción DEBE ser la del viewBox o las letras salen estiradas (trampa #6). */
+  svg.grafica { width:100%; aspect-ratio:320/180; display:block; touch-action:none }
+  .raya { stroke:var(--borde); stroke-width:1 }
+  .raya.tenue { stroke:var(--panel2) }
+  .ejeDinero, .ejeTiempo { fill:var(--suave) }
+  .linea { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round }
+  .linea.tuya { stroke:var(--verde) }
+  .linea.metido { stroke:var(--ambar); stroke-width:1.5 }
+  .linea.precio { stroke:var(--azul) }
+  .punta.tuya { fill:var(--verde) } .punta.metido { fill:var(--ambar) }
+  .punta.precio { fill:var(--azul) }
+  .guia { stroke:var(--texto); stroke-width:1; opacity:.5 }
+
+  .chips { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap }
+  .chip { flex:1; min-width:60px; padding:7px 4px; border-radius:9px; border:1px solid var(--borde);
+          background:var(--panel); color:var(--suave); font-size:12.5px; font-weight:700;
+          text-align:center; cursor:pointer }
+  .chip[aria-pressed="true"] { background:var(--texto); color:var(--fondo); border-color:var(--texto) }
+
+  .claves { display:flex; gap:14px; flex-wrap:wrap; margin-top:8px; font-size:12.5px;
+            color:var(--suave) }
+  .clave { display:flex; align-items:center; gap:6px }
+  .punto { width:9px; height:9px; border-radius:50%; flex:none }
+
+  /* --- tarjetas --- */
+  .tarjetas { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px }
+  .tarjeta { background:var(--panel); border:1px solid var(--borde); border-radius:13px;
+             padding:11px 13px }
+  .tarjeta i { font-style:normal; color:var(--suave); font-size:11.5px; display:block;
+               margin-bottom:1px }
+  .tarjeta b { font-size:17px; font-weight:700; letter-spacing:-.3px }
+  .tarjeta small { display:block; color:var(--tenue); font-size:11px; margin-top:1px }
+
+  /* --- listas --- */
+  .titulo { font-size:12px; font-weight:700; color:var(--suave); text-transform:uppercase;
+            letter-spacing:.6px; margin:20px 0 8px }
+  .fila { display:flex; align-items:center; gap:11px; padding:11px 13px; background:var(--panel);
+          border:1px solid var(--borde); border-radius:13px; margin-bottom:7px }
+  .fila .señal { width:34px; height:34px; border-radius:50%; display:grid; place-items:center;
+                 font-size:15px; font-weight:800; flex:none }
+  .fila .medio { flex:1; min-width:0 }
+  .fila .medio b { display:block; font-size:14.5px; font-weight:700 }
+  .fila .medio small { color:var(--tenue); font-size:11.5px }
+  .fila .cifra { text-align:right; font-weight:700; font-size:14.5px; white-space:nowrap }
+  .fila .cifra small { display:block; color:var(--tenue); font-weight:500; font-size:11px }
+  .borrar { background:none; border:none; color:var(--tenue); font-size:17px; cursor:pointer;
+            padding:2px 4px; flex:none }
+
+  /* --- vacío --- */
+  .vacio { background:var(--panel); border:1px dashed var(--borde); border-radius:16px;
+           padding:20px 18px; text-align:center; margin-top:14px }
+  .vacio h3 { margin:0 0 6px; font-size:16px }
+  .vacio p { margin:0 0 4px; color:var(--suave); font-size:13.5px; line-height:1.5 }
+
+  /* --- botones --- */
+  .boton { display:block; width:100%; padding:14px; border-radius:13px; border:none;
+           font-size:15.5px; font-weight:700; cursor:pointer; font-family:inherit }
+  .boton.verde { background:var(--verde); color:var(--sobreVerde) }
+  .boton.plano { background:var(--panel2); color:var(--texto); border:1px solid var(--borde) }
+  .boton.rojo  { background:transparent; color:var(--rojo); border:1px solid var(--rojo) }
+  .boton:disabled { opacity:.4; cursor:default }
+
+  /* --- barra de abajo --- */
+  nav { display:flex; border-top:1px solid var(--borde); background:var(--panel);
+        padding-bottom:env(safe-area-inset-bottom); flex:none }
+  nav button { flex:1; background:none; border:none; color:var(--tenue); padding:9px 0 7px;
+               font:inherit; font-size:10.5px; font-weight:700; cursor:pointer;
+               display:flex; flex-direction:column; align-items:center; gap:3px }
+  nav button[aria-pressed="true"] { color:var(--verde) }
+  nav .glifo { font-size:19px; line-height:1 }
+
+  /* --- hojas / modales --- */
+  .telon { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
+           align-items:flex-end; justify-content:center; z-index:50 }
+  .telon[data-abierto="1"] { display:flex }
+  .caja { background:var(--fondo); border-radius:20px 20px 0 0; width:100%; max-width:520px;
+          padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+          box-shadow:var(--sombra); max-height:92%; overflow-y:auto }
+  .caja h2 { margin:0 0 3px; font-size:19px; letter-spacing:-.4px }
+  .caja p.sub { margin:0 0 14px; color:var(--suave); font-size:13px }
+
+  .telon.centro { align-items:center; padding:16px }
+  .telon.centro .caja { border-radius:20px; text-align:center }
+
+  label.campo { display:block; margin-bottom:11px }
+  label.campo span { display:block; font-size:12px; color:var(--suave); font-weight:600;
+                     margin-bottom:5px }
+  input, select { width:100%; padding:12px 13px; border-radius:11px; border:1px solid var(--borde);
+                  background:var(--panel); color:var(--texto); font:inherit; font-size:16px }
+  input:focus, select:focus { outline:2px solid var(--verde); outline-offset:-1px }
+  .dos { display:grid; grid-template-columns:1fr 1fr; gap:9px }
+
+  .tipos { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:13px }
+  .tipos button { padding:11px 6px; border-radius:11px; border:1px solid var(--borde);
+                  background:var(--panel); color:var(--suave); font:inherit; font-size:13.5px;
+                  font-weight:700; cursor:pointer }
+  .tipos button[aria-pressed="true"] { background:var(--texto); color:var(--fondo);
+                                       border-color:var(--texto) }
+
+  .previo { background:var(--panel2); border-radius:11px; padding:11px 13px; font-size:13px;
+            color:var(--suave); margin-bottom:12px; line-height:1.5; min-height:42px }
+  .previo b { color:var(--texto) }
+  .previo.mal { color:var(--rojo) }
+
+  .aviso { font-size:12px; color:var(--tenue); line-height:1.5; margin-top:10px }
+  .pie { text-align:center; color:var(--tenue); font-size:11px; margin-top:22px }
+
+  .oculto { display:none !important }
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="StocKids">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+
+<header>
+  <div class="cabe">
+    <div>
+      <div class="quien">El dinero de <b id="quien">…</b></div>
+      <div class="cuando" id="cuando">…</div>
+    </div>
+    <button class="icono" id="irAjustes" title="Ajustes">⚙</button>
+  </div>
+</header>
+
+<main>
+  <div class="hoja">
+
+    <!-- ===== Mi dinero ===== -->
+    <section id="pantallaDinero">
+      <div class="granTotal" id="granTotal">$0.00</div>
+      <div class="cambio" id="cambio"></div>
+
+      <div class="lienzo"><svg class="grafica" id="grafica"></svg></div>
+      <div class="chips" id="chipsVista"></div>
+      <div class="claves" id="claves"></div>
+
+      <div class="tarjetas" id="tarjetas"></div>
+
+      <div id="zonaVacia"></div>
+
+      <div class="titulo" id="tituloMovs">Lo que ha pasado</div>
+      <div id="listaMovs"></div>
+    </section>
+
+    <!-- ===== El precio ===== -->
+    <section id="pantallaPrecio" class="oculto">
+      <div class="granTotal" id="precioGrande">$0.00</div>
+      <div class="cambio" id="precioCambio"></div>
+      <div class="lienzo"><svg class="grafica" id="graficaPrecio"></svg></div>
+      <div class="chips" id="chipsPrecio"></div>
+      <div class="tarjetas" id="fichaInst"></div>
+      <div class="aviso" id="notaInst"></div>
+    </section>
+
+    <div class="pie" id="pie"></div>
+  </div>
+</main>
+
+<nav>
+  <button data-pantalla="dinero" aria-pressed="true"><span class="glifo">◧</span>Mi dinero</button>
+  <button id="botonCapturar"><span class="glifo">＋</span>Capturar</button>
+  <button data-pantalla="precio"><span class="glifo">◔</span>El precio</button>
+  <button id="aStocKids"><span class="glifo">◈</span>StocKids</button>
+</nav>
+
+<!-- ===== hoja de captura ===== -->
+<div class="telon" id="telonCaptura">
+  <div class="caja">
+    <h2>Capturar un movimiento</h2>
+    <p class="sub" id="subCaptura">Lo que de verdad pasó en la cuenta de GBM.</p>
+
+    <div class="tipos" id="tipos"></div>
+
+    <label class="campo"><span>¿Qué día?</span>
+      <input type="date" id="cFecha"></label>
+
+    <div id="camposMonto">
+      <label class="campo"><span id="etiquetaMonto">¿Cuánto?</span>
+        <input type="number" id="cMonto" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></label>
+    </div>
+
+    <div id="camposTitulos" class="oculto">
+      <div class="dos">
+        <label class="campo"><span>Títulos</span>
+          <input type="number" id="cTitulos" inputmode="numeric" step="1" min="1" placeholder="1"></label>
+        <label class="campo"><span>Precio por título</span>
+          <input type="number" id="cPrecio" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></label>
+      </div>
+    </div>
+
+    <div class="previo" id="previo"></div>
+    <button class="boton verde" id="hacerCaptura" disabled>Guardar</button>
+    <button class="boton plano" id="cerrarCaptura" style="margin-top:8px">Cancelar</button>
+  </div>
+</div>
+
+<!-- ===== ajustes ===== -->
+<div class="telon" id="telonAjustes">
+  <div class="caja">
+    <h2>Ajustes</h2>
+    <p class="sub">De quién es, en qué está y cómo se comparte.</p>
+
+    <label class="campo"><span>¿De quién es este dinero?</span>
+      <input type="text" id="aNombre" maxlength="24" autocomplete="off"></label>
+
+    <label class="campo"><span>¿En qué está invertido?</span>
+      <select id="aInstrumento"></select></label>
+
+    <label class="campo"><span>Colores</span>
+      <select id="aTema">
+        <option value="sistema">Como el teléfono</option>
+        <option value="noche">Noche</option>
+        <option value="dia">Día</option>
+      </select></label>
+
+    <button class="boton plano" id="compartir" style="margin-bottom:8px">Mandar a su teléfono</button>
+    <button class="boton plano" id="respaldar" style="margin-bottom:8px">Guardar un respaldo</button>
+    <button class="boton plano" id="restaurar">Cargar un respaldo</button>
+    <input type="file" id="archivo" accept="application/json" class="oculto">
+
+    <div class="aviso" id="avisoDatos"></div>
+
+    <button class="boton plano" id="cerrarAjustes" style="margin-top:14px">Listo</button>
+  </div>
+</div>
+
+<!-- ===== bienvenida ===== -->
+<div class="telon centro" id="telonHola">
+  <div class="caja">
+    <h2>¿De quién es este dinero?</h2>
+    <p class="sub">Va a salir arriba, para que sepa que es suyo.</p>
+    <label class="campo"><input type="text" id="hNombre" maxlength="24" autocomplete="off"
+      placeholder="Su nombre" style="text-align:center"></label>
+    <button class="boton verde" id="hacerHola" disabled>Empezar</button>
+  </div>
+</div>
+
+<!-- ===== aviso genérico ===== -->
+<div class="telon centro" id="telonDicho">
+  <div class="caja">
+    <h2 id="dichoTitulo"></h2>
+    <p class="sub" id="dichoTexto"></p>
+    <button class="boton verde" id="cerrarDicho">Va</button>
+  </div>
+</div>
+
+<script>
+/* ===== visor.json horneado, 52 KB ===== */
+const HORNEADO_VISOR = {"generado":"2026-08-16","fxUltimo":17.015,"fxFecha":"2026-08-16","instrumentos":[{"clave":"SPYL N","ticker":"SPYL.L","nombre":"SPDR S&P 500 UCITS ETF","gestora":"State Street","acumula":true,"costo":0.0003,"isin":"IE000XZSV718","base":"2023-10-31","dias":"0.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.3.3.1.2.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.4.1.1.6.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.5.1.1.2.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1","usd":"rz.a.f.0.g.3.-1.2.-2.9.m.3.-6.4.7.-1.6.2.-2.-1.3.-1.-2.-69.6a.4.2.0.3.4.5.7.g.1.4.6.2.-9.3.6.5.-1.-b.-6.2.-4.3.7.4.-4.8.-1.-1.-8.6.a.c.-2.c.-1.2.-2.8.-a.-6.l.-4.4.a.0.6.8.-i.1.8.6.-5.-7.-3.n.7.-2.-3.1.2.9.4.-b.8.7.1.-a.b.3.-4.-a.c.0.4.k.-6.-2.1.-3.9.-e.7.6.-9.-8.-4.-2.-5.-i.-5.3.-h.l.-1.-c.o.-7.-e.3.12.-2.6.4.2.f.8.0.-2.1.-1.-2.-8.-6.6.-2.f.7.-1.0.l.-4.6.8.4.0.-2.-5.-1.4.-3.5.9.3.a.2.4.-1.g.-2.-b.-b.-6.c.-t.-3.-1.-2.m.-c.-1q.4.h.-3.b.f.a.l.c.4.4.-2.4.-6.a.4.-i.-b.-9.-8.6.-c.u.f.a.-6.k.1.1.1.2.1.-8.3.-5.a.0.a.2.g.-2.-4.9.-9.4.-9.0.6.0.4.-s.7.-9.b.x.g.6.4.-5.2.-4.-n.5.0.-7.h.3.9.4.-2.4.4.3.0.8.3.1.-6.-3.7.-1.-7.6.-4.1.-11.9.-2.b.-3.-f.6.-7.5.n.-i.-a.1.-l.-7.9.p.6.d.4.1.g.1.6.-y.d.2.2.f.-q.8.-1.a.-7.3.1.-a.g.7.3.-2.2.-7.-4.-g.-m.i.-a.-k.e.-19.0.e.-s.-7.-l.c.-i.i.7.-7.a.2.-5.r.2.-8.-6.-s.-a.j.7.-1f.-34.19.-19.1s.14.1.-e.-n.x.b.b.9.-4.y.-4.-6.j.u.l.1.1.a.1.-4.-j.c.1.4.-6.g.6.3.3.1.a.-4.2.-7.-1.-j.e.n.2.9.g.2.4.g.-9.-4.4.9.-4.2.-e.j.b.-8.7.b.4.-4.-1.4.-j.-2.a.0.c.9.8.-1.-2.-3.-c.2.c.a.1.-3.-n.f.9.9.-3.a.d.6.-3.-1.d.6.3.-9.-9.b.-2.a.3.9.-6.9.-5.-j.-6.g.-1.b.3.-a.6.x.7.5.-c.-4.1.-b.1.-j.-i.u.a.7.-f.-7.-7.-n.0.d.-r.t.8.p.-2.5.-2.-4.9.0.5.-5.4.-3.4.-b.1.-a.-8.f.5.a.5.4.-3.3.-4.-b.g.2.7.-7.8.4.0.-d.e.-4.-l.-1.-1.f.0.8.8.-2.-i.7.b.-a.-a.-h.i.h.0.-5.-j.-3.-5.0.g.-8.5.-a.6.f.-7.-6.-6.-j.o.-e.-f.-7.q.-f.-f.-d.8.9.-d.-k.-a.9.-2.8.-m.-q.-2.8.13.-5.-4.1f.9.5.w.b.b.f.-2.8.6.2.-9.3.9.l.n.8.b.-i.h.n.-u.-a.i.-4.t.0.a.8.6.-a.0.-y.-r.0.-7.1u.-4.-6.-9.-2.-n.a.-c.7.k.8.-6.b.-c.-d.n.6.-2.5.2.-m.6.3.-u.1.a.-g.3.1b.v.b.-8.b.-3.0.a","mxn":"e0m.59.-o.-6r.67.3g.-2e.2l.6l.n.8w.-6e.-3y.-8.2x.-3o.55.18.-z.-2q.2j.-1j.46.-2xv.2vg.9t.-1x.-29.7f.-1w.31.14.6n.-1w.2q.12.-25.-23.-1p.w.l.l.-4q.-1d.v.-20.-2k.1q.61.-1h.1f.-1e.2.61.2g.42.3j.1g.a3.-2r.-i.-1n.5d.-6r.-r.4v.11.q.1q.v.5l.1q.-8r.55.-c.1f.-24.-3o.-j.a7.5n.-o.-2v.8.1i.2y.g.-6r.2u.19.c.-6z.52.q.-5m.-3c.66.3t.r.4n.-t.3.-2f.-2m.y.-6f.2s.49.-d7.-1i.r.-21.6z.3a.-4u.56.-5q.3e.3t.-16.4x.1k.-eh.2m.g2.-l.-25.1x.36.18.3p.-4l.y.2o.1x.z.4l.-39.rb.2y.-3h.gp.ok.e.he.-er.72.-f.2z.-2u.-g1.3z.6d.6l.-3o.-1v.1z.-25.13.-1y.-c.-3f.63.-3a.-2q.3g.-3u.ef.-75.19.72.2u.78.4h.-ng.g8.g.-iw.db.58.-13.45.7c.fa.c8.6y.cd.-6v.bs.23.-bl.0.-7l.-46.ah.-hg.6p.-3t.1j.1s.cz.4y.-3i.dc.8.21.-5l.-6l.-5r.3g.2j.9r.-4.88.9q.5u.1u.u.10.-8v.-o.8e.35.33.-b8.-h.-3p.6q.jh.ap.-bn.fs.5j.av.-4w.-ge.0.-5t.-89.g4.7n.2b.bl.1k.3.-3v.-10.12.b.1u.-43.-40.18.e.-2h.-g.-h.-17.2j.-cp.3g.-c7.ae.-8.-40.g5.3u.-6a.dr.-m6.-5c.43.-8i.45.1g.a0.1k.mc.n.-b7.g3.-6q.-1e.-gg.j6.-6q.-m.ft.5b.-rl.4r.8g.-9k.8h.1l.-8z.92.-1j.-2r.-2k.-d.53.-8o.-5r.-8r.9v.-8k.-8y.an.-hw.-7l.33.-kk.-4r.-85.3c.-de.6a.-1t.-2v.3e.64.u.ip.-5q.-4s.5l.-et.15.5h.12.-14f.-10a.uo.-16q.19g.3o.2k.-ft.-nc.ig.4v.57.3k.-k.j6.-i.-53.7b.jk.3b.1.3v.-28.4.22.-cj.45.5n.-14.-7l.9w.1t.2.-38.1h.-1i.-2m.2h.9.-t.-9k.9b.90.-2i.3m.2k.u.3h.38.-4y.-3c.2s.3h.4b.38.-aq.b5.1s.-4w.-10.5v.b4.-1z.3u.2y.-9x.-71.-e.a.8f.11.5y.7h.-2m.13.-8k.-d.2u.4v.l.-1k.-8q.72.5m.12.-2o.36.x.-13.-4j.h.8s.2z.14.-1f.-1o.7.-3a.8f.2l.1e.-q.1z.-e.-63.-1b.5z.-1g.4b.2u.-4v.12.i1.28.45.-3u.b.26.-8o.92.-dk.-b6.ah.1s.t.-93.-2b.-3y.-60.-42.5v.-br.jq.4t.7x.-3b.2j.-3j.-q.2u.e.-f.-4j.6b.-5l.u.-be.-u.-5x.-52.9z.1k.6g.2.-14.-1s.56.-1s.-58.4n.14.6w.-42.39.2v.-3e.-am.5i.-8k.-b6.-3a.7.2g.-z.-o.39.-a6.-9a.70.gt.-9e.-ba.-45.hf.-3u.-1v.-3y.-8h.-l.-4x.c.5o.g.4d.-cb.am.3k.-4c.-x.2a.-9o.st.-ae.-2d.9s.-1x.-au.-m.-25.66.-4o.-7l.-1n.-9a.de.-7z.1a.-8h.-6v.8x.-7f.gq.-1b.-gv.lp.u.-28.ef.4o.5h.ab.-g.4u.6c.-10.-3l.8d.12.47.6h.5f.t.-6n.51.e1.-cb.1n.44.-2o.dv.4j.17.5v.c.-3g.-2c.-6q.-dz.-1d.-cf.tv.-25.1u.-1i.-e.-1e.87.-ba.1a.as.76.-75.g.1q.-4e.9t.20.-62.-4.2s.-a1.28.1b.-8z.-2y.4l.-7p.-3h.m0.b1.3v.-5f.1s.-4q.-v.3b"},{"clave":"VUAA N","ticker":"VUAA.L","nombre":"Vanguard S&P 500 UCITS ETF","gestora":"Vanguard","acumula":true,"costo":0.0007,"isin":"IE00BFMXXD54","base":"2019-05-14","dias":"0.1.1.4.2.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.3.3.1.2.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.5.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.3.3.1.2.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.4.1.1.6.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.5.1.1.2.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1","usd":"3uw.u.1r.0.-19.0.0.0.0.-4z.1j.1e.y.20.0.0.0.y.1f.0.0.1i.0.0.-1m.22.7.13.0.-j.-2.o.m.m.-4.-r.-u.9.n.n.9.k.-e.3.-7.-6y.-u.5.31.-15.1a.-2t.-t.3x.-b.d.-n.-1v.h.1u.-b.-k.1e.2c.c.-18.1e.17.-k.-1.-3.14.-1c.3.-10.-9.k.-r.-3n.7.2v.-2g.h.1s.13.1j.-9.a.9.c.-f.d.1i.6.-c.-d.1h.13.-7.-5.z.-l.1.10.-j.7.15.7.0.-4.-j.-4.1c.m.8.7.-6.-1i.-1u.1t.-4.1v.-8.-b.-3.18.-6.1x.-4.7.7.11.d.-1.r.-z.-4.z.-b.-2.k.a.13.b.3.e.g.j.s.4.5.3.-15.l.-3h.1l.i.-1l.-x.v.2b.17.12.-c.3.1f.g.3.2.k.-1k.1n.-1e.-u.-50.-2s.-l.-60.-78.52.15.1c.s.-6a.-70.-27.r.-cc.-l.-e.-7.-5z.y.-2b.-68.9z.3p.49.-2g.33.1u.-6r.-d.5q.5h.-j.48.10.-28.1e.32.-65.2m.27.20.a.2u.-10.-4x.3q.-13.11.1n.g.-4d.-1s.7e.a.11.-1s.3c.-z.36.-e.o.2v.-6.4z.2.-t.-5o.-3d.5d.-2.-9.-q.2g.-4i.-j.-f.1t.1b.1u.25.3.-1y.-w.5a.-3t.3j.-u.1e.1u.-j.n.-2i.n.g.-x.3g.b.1a.-a.1g.1e.3.b.4.1.q.-19.24.v.16.1w.r.1v.-3l.-20.-3i.1x.c.-j.y.c.-2v.-6g.2c.r.-2u.5h.-g.1r.e.m.k.2.1i.4n.-2.-w.-2e.i.-1c.-2.-i.-2e.r.-50.-5.-1m.2b.3l.40.2u.-k.58.-3h.1j.-m.5.39.-p.7.-2s.w.-v.3f.-7.c.j.-23.3i.-b.r.r.7.-3.6.-10.-1j.1n.-l.1r.r.-u.-1u.1h.l.-7.24.-5.-9.-1l.m.2z.1k.i.-2.-e.b.e.-21.-7.o.2n.r.-q.-12.1x.-35.x.-3x.19.3z.-c.1b.1g.w.i.-d.m.j.1m.-14.-19.-h.1k.-27.-1o.2m.-q.-3b.3i.-f.-t.-27.-4j.6o.15.p.2l.-1g.r.1e.-z.y.-28.16.-9.-6.-28.29.x.9.14.1a.3v.-b.t.1j.m.i.s.h.-2a.1l.w.z.-c.d.1.-2l.25.-7.2r.-48.-2h.e.28.i.-3j.3e.2b.-k.c.e.8.f.-p.v.-3.v.5.6.6.c.-13.-l.1b.d.x.p.y.-6.q.2b.-1f.17.-1v.3e.n.-x.-b.-55.2f.1j.v.2y.-1p.12.11.-i.-1b.t.w.h.b.7.g.-1.1.-5.-2e.4d.8.i.-p.2h.-2.o.b.-1i.-n.f.-2h.-6.-9.-6.-4d.-5.1t.2r.-a.-4c.o.-19.-37.3v.-2r.5x.-s.-2i.-s.46.2t.1p.14.-d.1m.1e.-m.t.10.13.-7.2a.1x.-9.-13.-a.-13.1e.a.13.-p.-a.13.16.-32.11.v.-5r.2i.-2t.32.-4o.-t.29.5c.-a.d.-c.-c.-2w.-a.4l.-30.-5j.3j.44.2c.-1.31.n.-1j.12.-a.-49.-13.-3m.3q.28.-3.-4e.1f.-47.-s.1e.-5p.-9w.1n.57.-1o.-1c.59.2m.1z.-1k.-2a.x.j.3h.-13.-3e.-3x.2w.-17.-y.-3h.-2d.u.-27.-4w.92.11.-36.38.-w.-3n.-1w.-4m.5h.-32.1o.-2d.2a.4n.2b.2o.11.2l.-m.-4.1m.n.44.-8.-t.-18.-2.-51.-d.-11.11.-1g.1.w.15.h.-da.0.1.9.-1k.-25.9.-7a.-1q.2q.-5a.3s.3c.-4l.-3u.3s.-4e.3j.4d.7a.-3b.-1f.2c.-s.1s.-37.-g2.-1k.z.-4m.1l.38.l.-5.76.-26.-2w.-1p.1b.-2x.3c.3a.-13.6.-38.-2f.73.o.31.-7.o.-2e.2k.3n.4r.-1e.1d.h.11.-20.3w.1f.2e.1d.-1u.u.-65.-1f.u.o.-8f.-t.-3k.16.-m.z.3e.5i.-6n.-23.-11.-30.l.-60.-44.-d.r.-23.y.68.-27.1p.-7z.-c.-r.1g.2p.16.5.z.30.3g.20.-2i.21.-w.-1i.-4j.-5.2p.3h.-32.6g.1r.1v.z.-1x.-2p.25.-x.1u.2j.r.-n.-1x.-28.m.5z.-17.-1h.-36.-1m.1n.o.-11.5j.-l.-7p.-2m.-12.-j.3h.-3v.1c.-1e.29.-y.-10.2o.-2v.36.47.-2x.2i.1b.7.1g.-9.-1l.-3o.2c.4l.-k.-1y.2m.26.-17.0.14.5y.0.-34.-b.6.f.-2f.2d.-17.19.-2.-3l.w.-2u.-o.-o.-1f.1a.-3.-1p.-f.3w.2u.-3d.-17.q.-37.-34.2w.-3x.4b.-i.a.2l.w.-9.-2p.27.-k.21.1y.2z.-9.-q.0.1d.-7.n.i.11.-b.-l.-b.-13.-12.t.-8.1c.-2z.3d.a.-g.b.-8.9.2o.15.-y.-3f.13.3u.-26.1z.4j.-n.7.5.1c.2x.14.11.-9.-19.-e.-3.-18.l.1c.h.37.3.1.-36.p.r.35.s.1a.y.1y.-11.3.j.-d.1s.-g.-i.-2f.-16.-d.-1b.6.1h.-19.-13.-q.-24.-1j.1m.1b.-y.3n.1t.h.-d.-c.-2c.-e.11.-2.9.15.-1z.-1q.1a.-4q.-1p.-21.-l.1b.-7.-3t.u.-9.3j.42.-10.s.6.-2.-1t.-1f.-40.3.-1a.-30.-f.1a.24.4m.3j.-7.11.-i.m.-k.22.4v.e.-11.j.1n.-2.19.9.-d.-1.q.-g.-l.1m.-19.p.-1.f.w.v.16.17.3r.-1.w.15.h.-22.13.1b.m.5.-2a.-1k.c.-m.q.1i.p.-10.20.-3.-4.-1u.16.20.2s.-k.2l.-3.g.-g.1o.-24.-11.4b.-o.n.20.c.12.1x.-44.e.1r.17.-12.-1v.-b.57.1c.-g.-x.f.9.1x.v.-24.1a.1u.j.-2a.2a.n.-v.-24.2l.3.t.4d.-1i.-c.c.-i.1i.-2t.1l.14.-1v.-1t.-z.-6.-x.-47.-1d.10.-3i.4a.8.-34.54.-17.-32.h.8g.-e.13.v.9.3h.1r.0.-g.6.0.-m.-1n.-11.y.-h.3j.1b.-5.6.4e.-q.12.1u.u.8.-o.-12.-4.o.-k.10.2a.i.20.k.u.-6.36.-c.-2c.-2g.-16.2o.-68.-s.-6.-g.4w.-2w.-dp.1t.3c.-w.2c.3a.2q.40.2s.s.q.-8.k.-18.2e.o.-3s.-2e.-24.-1o.16.-2c.6m.34.22.-1i.4k.e.4.e.8.4.-1m.m.-s.1w.2.2a.6.3g.-c.-y.22.-1u.o.-1s.-2.18.2.q.-64.1q.-1y.2g.6y.3k.1k.q.-14.e.-y.-52.1a.-4.-1m.3o.q.1y.10.-i.s.14.i.-2.1q.i.e.-1c.-m.1k.-c.-14.10.-y.6.-7u.2a.-12.2k.-m.-34.16.-1q.1c.4y.-3w.-1y.-g.-48.-14.1u.4s.1s.2o.y.g.3e.4.18.-6y.2k.m.-a.3k.-5o.1y.-a.26.-1i.q.a.-1y.38.1i.o.-i.k.-1s.-a.-3u.-54.4g.-26.-48.2y.-a4.4.2q.-5q.-2a.-3w.2i.-3w.3k.1u.-1e.1y.i.-11.5z.i.-1s.-16.-68.-2a.4a.1g.-b6.-o2.9k.-9k.du.8k.i.-3m.-4q.7c.28.2g.1q.-u.74.-c.-1m.44.6m.4q.0.a.26.a.-o.-4g.2o.e.6.-q.3m.16.w.c.c.24.-12.g.-1c.-4.-4g.3e.4y.g.22.36.g.u.3g.-1u.-y.y.20.-10.i.-32.44.2k.-1w.1g.2g.12.-y.-6.y.-44.-o.2a.-4.2o.1y.1q.-a.-e.-g.-2w.i.2o.1w.k.-m.-56.36.28.1f.-7.24.2o.1i.-g.-6.2e.1g.s.-20.-20.2m.-m.28.g.26.-18.1u.-18.-3s.-1o.3g.0.28.o.-28.1a.78.1k.12.-2c.-16.c.-2g.4.-44.-42.6q.26.1i.-34.-1g.-1q.-50.0.2w.-62.6i.1i.5m.-i.1a.-k.-w.1w.0.16.-y.u.-w.w.-2m.k.-24.-20.3g.12.2c.12.s.-q.s.-w.-26.36.i.1k.-1q.20.y.-6.-34.3e.-12.-4g.-8.-c.3c.0.1u.1q.-g.-3w.1m.2a.-2a.-28.-3k.3y.3m.4.-1c.-3w.-o.-1a.a.3g.-1s.12.-2c.1e.3a.-1k.-16.-1g.-48.5c.-2y.-3e.-1o.5q.-36.-3a.-2w.1w.20.-2q.-4o.-1s.1w.-e.1c.-4k.-5m.-k.1q.8m.-16.-s.b4.1u.y.70.2g.2g.3c.-k.1u.18.e.-1s.m.1y.4m.4s.1w.2a.-3o.3k.4y.-6o.-24.42.-10.6a.0.26.1q.1g.-28.0.-78.-62.6.-1s.ei.-w.-1g.-1w.-c.-52.26.-2e.1c.4e.1q.-1g.2e.-2i.-2s.4w.1e.-6.s.e.-4i.12.o.-6u.i.26.-3o.y.a8.6i.2i.-1s.2k.-u.2.26","mxn":"21ut.4f.12s.-7h.-wq.6q.le.-6p.1im.-1ng.-23.1ge.8i.-r8.-dw.7l.30.g0.kx.-gk.-2n.1mm.3c.-bs.-px.t3.-4z.er.0.-kc.w4.8d.2o.-33.g7.-j0.-up.gb.vq.-4k.0.dw.-6e.e5.6z.-1v2.-rz.7a.um.-c.-3z.-fs.-nz.38u.-np.-4q.5r.-bw.x7.xz.-5x.-yb.-c9.1df.-ft.-x5.sf.cs.-bz.-b3.55.q4.-iq.-42.-h.8a.m3.-4g.-22y.-es.180.-13t.3r.cg.-2m.ng.-a4.3e.-4d.9h.-ds.9l.gd.e3.-6u.-91.1ee.-2j.8m.7.d5.-fl.-1b.jf.ih.dx.dz.-e2.ii.48.6v.-f6.jo.r4.e9.b6.-d3.-me.-u1.vb.-kf.pu.-l5.-a0.1r.a.-lt.18n.-hm.q.cv.8x.bz.-1v.di.-yh.c9.fm.-h0.ha.-63.p0.-3t.95.-4h.5u.97.84.bd.-fh.26.j8.-va.iy.-1b6.yy.-hx.-107.-1j.tz.z0.-14.5u.2p.rv.am.-24.1a.-6k.1c.-r6.10p.-wb.xn.-1wg.-1bz.-7f.-27z.-36p.493.-14o.u7.s7.-26q.yd.-27w.ch.-4xb.1jy.-s6.2m9.-2k1.2w6.-8a.-209.8ua.mw.7a.-4bu.44t.wa.-2ts.-6n.4yr.2v2.-1l4.1m3.-k2.1wv.-wv.2zx.-2qi.27i.2lw.1b4.-1nk.-b0.195.-3st.20w.13j.-x8.oj.23c.-3nq.-2hr.4ek.-35.-19g.-2gz.-mj.-6s.1h8.-we.-xm.1q0.oa.13t.1vm.-3d.aq.-51z.3st.a0.1a7.-1nm.1hi.-136.-sx.1bh.xn.-fc.50.ll.26f.-1rm.-uy.3sw.-3rv.1uh.-3m.179.a7.6.vz.-3z8.da.g3.-gg.4zl.71.-dg.-12.15g.nh.-ac.-o7.-5.-m.n2.-160.qx.5h.vi.24r.-1f6.10w.-2ar.-1p2.-tc.-14g.fl.-22v.xe.-kv.-22l.-1po.2wm.3pw.-2vq.4c7.-5v.-a7.-vk.-1wk.1vb.-13i.g0.1z1.mx.-k9.-1mk.-25.-1cd.8m.-186.-1mu.q5.-2nd.wa.-fx.114.2l2.r4.15q.-173.1u3.-2wf.sz.cp.ro.jx.-t7.7h.-1ep.44.-17x.1zc.-ht.-5n.nb.-13t.2km.-um.8l.-2k.-hi.i7.-hr.-1b.-9d.1cl.gk.-ko.4a.-pt.dt.8m.y9.-e4.yl.-fw.-dj.-13k.tu.1fn.-g5.23u.8j.-5s.-18o.fh.-1po.iy.-en.147.4u.fh.ip.1xf.-2d4.2bu.-2mj.215.1j0.-1f7.123.1u2.-101.8f.-ar.1j.-26.qb.-jp.tq.-ce.1e4.-9i.f9.9h.-155.yu.1do.-yw.-r3.n1.-1p8.4kd.1yp.-18t.-2e.-2f0.yd.js.-xi.-rk.-ll.1n3.-lu.16q.-vj.71.45.-14.-6m.-21.1ik.1f.-77.146.-3g.e7.-g6.-gc.-hd.ix.r6.3y.u4.-ml.sm.-ga.1ja.-12z.ih.-21h.-cg.-vm.4p.rt.-1gq.1mu.16p.-4l.-s.oy.65.-5k.12c.-1eg.-rb.mq.-2s.1if.kd.2fa.-j2.8d.-8y.-n6.-1l2.7d.fe.ph.v6.53.cs.af.-uf.xo.1od.-1dm.7.-26y.1xt.x7.7k.15o.-1dj.c3.6i.1b.-ye.119.b4.14m.6a.-rs.e2.-gm.r0.6a.-j2.3e7.-kx.ce.ju.-jt.-f2.4n.-aq.-kr.-ct.6y.-1qq.4o.-gw.id.-1br.-d.qp.1bw.2o.-xn.1fa.-f.-2il.2m2.-1n2.3z1.r2.-1un.-1ub.2bj.ok.-5m.mc.96.4b.y6.cp.xi.1p6.2hp.-hz.-bm.16q.-1ag.-vk.-8x.1a6.zh.-la.13e.nm.-va.1d3.1cv.-w8.2ed.1ee.-1yk.26v.-20c.2q.-2e3.-1ix.rk.35t.-1g5.-gt.-1d.-oo.-wr.1b0.1gv.-35l.-34t.1k6.2tc.lm.-ke.1ys.-c9.-1jf.s6.32.-258.-134.-2q2.1w7.1h1.-8d.-2o9.lc.-2g4.9m.1g4.-31u.-652.1p5.36d.-af.-ft.3f2.7o.lt.-iw.-1ja.138.-5t.23e.-1bs.-1hl.-2j1.107.-u3.-157.-1xb.-1b4.n1.-1eu.-34l.74y.nc.-2hx.2yo.-ih.-23t.wm.-pb.3l0.-4jh.10b.-1im.1ed.25k.7d.so.-94.1gu.-11l.-ce.-4o.il.1h2.-pa.-gf.-13n.139.-1np.-ed.-1rd.-b2.-124.1a0.uf.co.1le.-79a.zp.-16.jz.-1uc.-2mm.16q.-38w.-vo.170.-3sr.18u.1dd.-21w.-2oa.224.-2ud.1t1.20r.2ok.-13u.-ee.cn.-ap.110.-17w.-4j5.-dv.-18y.-1om.7w.13y.-56.-ag.3dy.58.-1pe.-13f.1mi.-a8.2jt.12f.mf.w7.-29y.-1bd.23h.sv.1u3.j0.-rm.-1c9.zx.1j2.3a0.1pp.-134.-q8.36.-14m.ua.am.k9.1by.-lv.1fq.-3ga.-1mw.-l.gs.-3gy.-44.-23q.-h4.lh.-ap.1li.2fs.-2id.-1m0.5k.-290.p5.-40d.3d.-7r.-jh.-1hd.-36.38g.-un.1as.-59x.gl.-w4.tb.1h3.w9.nf.3e.ya.1o3.1j0.-1y4.108.-mz.-174.-2q9.-4b.w7.183.-14z.3mv.-fx.24s.-h6.-10o.-1hz.1j7.-90.1hq.ut.-7x.-28.-19g.-1gb.-1b.3dr.-1fi.ol.7m.-p3.ej.3u.dg.3e2.-239.-3t3.-n6.-bi.-ca.1q1.-2n4.6p.-1aa.zw.-bd.-j8.15p.-1nm.1bs.158.-1jh.ym.x.-ge.d0.-46.-1lm.-lp.1u4.1p2.-jp.-16o.1bj.18z.-sa.-24.12i.1jy.cm.gb.vt.-1lo.j5.-26n.n3.-1ab.ae.fy.-223.-le.-1cl.-31.-pr.-p6.s5.-6k.-18l.-19b.1w9.oi.-1jl.-16.-dw.ft.-1nk.4v7.-3tk.4fr.-1io.k9.16r.-mo.-b0.-1ja.-am.-um.az.y9.1hd.r.sf.-ha.ab.-pl.3u.bu.ky.-65.-jn.-ci.-3h.5y.-du.-en.k3.-1tb.qu.-137.7.-ox.68.vf.1ys.1jp.3.-2n5.t9.qt.-xs.4v.1mq.-si.m.66.3i.130.-53.hd.-gh.8c.-q8.ah.-wx.u.o8.dc.150.-10.-6k.-2g.-ur.95.mn.1j.-9o.ou.n0.j9.-80.wq.-lb.qb.-xg.nt.-au.1ig.-1ti.-cl.-84.r3.-qj.13.-92.-1as.-19g.32.-79.-41.1f1.nd.1sm.zm.16q.50.-78.-1ew.-gp.-f0.du.-vc.-15f.s5.-1hq.9v.m.le.-a3.o9.93.84.1po.1cp.bf.-13x.18a.-ba.ke.ka.-9c.-345.ti.-8c.-2oe.-e7.ao.11s.jh.92.-fw.we.-nu.nh.1ej.5z.20l.-1k5.-qc.-7e.qs.-qq.145.5m.-89.-hr.n1.-gl.sf.1e7.-1ub.22y.-n3.-9o.1nl.-er.pi.4p.1in.-i7.mx.52.-hj.-gy.-6q.7v.-4n.bs.-zu.-cd.3w.-ba.-j8.dm.18s.-d9.dy.-9j.22.1ao.ir.sb.sl.b6.260.-ju.-3t.-cz.15q.-1hf.-15.zc.a3.7.d3.a8.14l.i0.-207.15k.-34.b7.-h1.-y9.1h.29j.16i.-5v.-o8.37.9o.ms.3s.-1ee.fj.dp.82.-1ir.110.6s.-19h.-qi.1c6.v9.56.113.-92.32.-if.-j1.2p.-1ao.jy.v2.-2tk.-aq.2s.-9w.1l7.jt.-17i.1cd.-17k.nh.zw.-ij.10z.gk.-32p.gq.3jj.-3b.-iz.fh.kx.d7.se.-z3.7p.i5.j7.3z.11o.-ki.5sb.mg.-nh.3kp.5c1.5h.3n4.-324.1do.-13.ni.-kh.-3is.sv.1gf.1d9.-sg.-ej.iz.-i8.4w.-cz.-2e.-rh.193.-pb.-kn.qb.-t3.383.-1kc.8j.1ii.nq.1mv.rw.-54r.3y0.-4c.-45c.2s2.18x.-1r.o7.1oa.380.2kn.1mk.2lr.-1jh.2pc.dw.-2ez.-2n.-1pl.-ua.28d.-3mw.1eb.-wk.cn.98.2wq.16b.-u6.2yo.-1w.gl.-16u.-1hs.-10y.mo.hy.299.-5m.1r4.24f.17x.fl.7x.5r.-1v8.-6p.1sx.qd.m7.-2hb.c.-tl.1gr.47a.2aq.-2eq.3fc.15f.2cu.-13q.-3ki.g.-1as.-1sn.3hf.1mi.jo.2l7.cj.-17.-sq.-85.7w.24.bo.-to.-xn.bo.45.-lo.29.-7b.-9w.g5.-2nb.xm.-2y9.2cq.-15.-t1.3fo.q7.-1ai.32h.-4u7.-11h.h1.-1kv.113.9t.1t6.l5.4uc.6h.-2ci.3eb.-1hu.-9z.-3f4.418.-1bl.-hw.3ko.13w.-5t8.yy.1s4.-20i.1t1.dj.-1sy.1t6.-ap.-jp.-n1.-1.x8.-1kq.-1dj.-21e.2bj.-1s4.-1uk.263.-3z6.-1l3.gp.-4ad.-1fh.-1fw.qr.-2yz.18i.-aa.-it.nj.19p.am.41f.-16j.-11f.18q.-3ao.aa.184.8e.-8wc.-7pa.6k2.-983.9tx.sj.n5.-3ob.-4xu.42i.10k.143.o3.-21.3yu.6k.-180.1j6.4cc.pm.-35.x1.-gl.g.hu.-2s9.u4.1d0.-ng.-1bo.27g.ej.1q.-tr.d1.-bp.-oe.l9.5g.-5x.-28e.28l.1wn.-lp.wf.di.8b.o4.pd.-z1.-rv.ld.tr.ub.r6.-2cu.2ga.ff.-13b.-95.19y.2ie.-ho.tb.p7.-23b.-1mu.-1q.3.1u1.7s.1by.1l9.-jk.9v.-1zc.-1n.nd.wp.a1.-c4.-1x1.1fr.1c6.13.-dk.oh.54.-4w.-ys.4p.1ro.o8.ab.-b5.-dt.3w.-r8.1t4.ir.d7.-47.e6.-4r.-16x.-ej.1a7.-8u.tv.or.-131.74.3y1.hv.wn.-s8.8.gn.-1vz.1wp.-2z6.-2fl.2c4.gb.4z.-1vf.-gn.-ym.-1aw.-wn.18l.-2lq.4dx.yr.1sj.-q7.k1.-qm.-8h.ne.-1.l.-yd.1bq.-18r.6z.-2l6.-b.-19y.-191.2a3.cc.1e4.3.-83.-ft.15t.-dj.-10t.tu.an.1gz.-ww.u2.ld.-r6.-2f9.1a8.-1vv.-2e1.-oa.-e.i6.-5b.-48.oa.-27l.-1ze.1ji.3lb.-21p.-2h1.-ty.3qe.-uj.-e2.-w7.-1rh.-6c.-12r.6m.15j.2n.zx.-2q8.2ay.qp.-yl.-3c.gx.-263.6bc.-28e.-k3.22l.-dk.-2e4.-25.-jd.1gb.-115.-1n3.-fh.-1wg.2w5.-1pi.4g.-1s0.-1gv.1ve.-1kl.3od.-ce.-3mr.4q3.4n.-hm.341.12a.18c.28h.-5n.13j.1di.-7o.-s0.1sl.8r.x2.1dy.15v.58.-1ci.10z.329.-2q7.er.vm.-k4.2zy.zh.6y.1bz.2r.-r2.-jq.-1d2.-336.-a0.-2r7.6kc.-ht.bx.-9t.-24.-cp.1sq.-2dx.8b.2d2.1ix.-1kq.3e.dx.-v8.21v.gi.-17e.-69.lo.-230.dp.am.-22e.-jl.zs.-1pu.-m6.4q2.2az.xl.-166.ei.-13c.-4x.ow"},{"clave":"CSPX N","ticker":"CSPX.L","nombre":"iShares Core S&P 500 UCITS ETF","gestora":"BlackRock","acumula":true,"costo":0.0007,"isin":"IE00B5BMR087","base":"2010-09-15","dias":"0.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.6.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.3.1.3.2.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.3.3.1.2.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.5.1.1.2.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.3.1.3.2.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.5.1.1.4.1.1.1.4.2.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.3.3.1.2.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.5.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.5.1.1.4.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.3.3.1.2.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.4.1.1.6.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.5.1.1.2.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.4.1.1.1.1.3.1.1.1.1.3.1.1.1.1.3.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.5.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1.4.1.1.1","usd":"7de.0.0.0.0.0.0.0.0.0.0.8d.0.0.0.0.0.0.0.0.0.0.0.7e.0.0.r.p.-c.64.0.12.j.0.0.0.0.0.0.0.-69.-r.-3n.0.5z.0.-5k.0.0.0.0.0.0.0.0.0.0.g5.0.0.0.0.0.2s.0.0.0.0.0.2n.1n.-b.-1h.-d.2o.29.5.6.0.0.-2.-3g.0.0.2n.0.0.0.0.0.5c.-13.1a.3t.0.-m.0.0.2n.0.1d.0.1t.0.-37.0.0.0.-o.0.0.6.0.0.-x.0.0.-5x.0.-3s.-36.1z.23.0.2w.0.31.0.0.0.4a.0.1l.c.-4.0.-j.0.0.0.-7z.0.0.0.0.0.ed.0.-36.-1c.3m.-h.-5.0.-2a.-4i.0.3z.-x.0.-3l.-8.4u.0.-6q.0.0.0.0.0.0.0.-8n.17.0.4o.-72.1w.3n.3w.0.63.0.0.0.0.-2l.2o.0.-4a.0.0.0.6r.0.-5g.0.-8d.-2l.-61.-5e.-f1.0.0.-20.0.ae.0.-d0.0.0.0.68.0.0.0.-5h.0.0.0.41.q.0.84.0.0.0.0.-e3.0.0.0.0.-as.8m.0.em.0.5s.0.-6.0.3k.0.6c.0.0.0.2k.0.0.-31.-15.0.0.s.-37.77.0.0.0.-7w.-30.-7p.-q.-4n.-x.1z.6i.13.8z.17.31.26.-1r.-q.-21.20.-4q.1r.-6u.1y.1y.-33.5a.-q.3v.33.-27.1a.1t.4o.-2p.f.1d.-t.4f.-1s.s.-13.2n.12.-5.3c.-14.1r.-t.-1.2t.-21.-2b.a.4h.6.3x.-d.1e.-s.1a.-22.23.-b.1p.-14.25.2m.-k.-1q.m.1d.5.13.-1r.1r.-4.-2h.-3d.13.2r.2j.-z.3f.2m.1v.q.1b.-1t.w.-33.i.3o.1f.-2b.-3a.5p.-e.-4p.17.-6a.-o.2v.-36.4d.-m.4.-5o.36.30.1e.10.3r.-3d.h.-bz.1g.17.-3t.-1u.-v.-3h.-2o.4q.-6b.52.2k.-3w.-3h.1q.2o.l.-i.13.q.3q.3t.-b.-30.-7f.1.3x.-2i.9d.4d.4.-12.-4z.0.-2d.-2f.6c.-1l.51.1k.-7p.-h.-1z.4r.74.o.-16.-45.81.1g.2.c.-14.28.-t.1j.t.27.-3b.-1.a.-g.-1k.24.-2k.1t.5g.25.8.-6.j.5t.-i.o.-1v.3.1i.-6i.p.40.-2j.1w.1c.-g.-2s.-11.i.-25.57.1k.5.-7r.-45.u.-1d.-c.1w.-29.53.-9.-2z.2f.-7i.4.-1v.-1c.24.-45.-4g.-20.9c.1e.i.19.2c.-16.1f.-z.44.-q.d.-2e.-6.21.j.1h.33.-9.-1n.-28.1t.4m.s.-2e.-1z.-1.-46.8.-4n.eu.2w.-c.-h.-1t.2k.3.17.6.-e.1c.1n.-8.2j.-x.1k.2o.-t.q.12.6.-1t.2w.-2h.2d.f.-29.3l.7.c.a.b.l.-b.1w.-o.-5k.1g.28.-7c.5c.2r.-1f.10.5p.-2.y.u.1f.-l.11.1p.3.-14.-2s.2w.-17.h.-v.22.8.1d.1v.-2x.-7.-1s.2p.5c.2y.-4u.-2k.-41.-10.1d.6d.h.2b.l.9.-6.1e.64.29.6.f.3v.1w.16.2s.-17.3m.-7u.5e.-64.35.-85.49.-5q.-1m.8j.-1p.-2x.-1v.6i.1c.0.-br.-ai.60.31.4l.2b.-e.-2g.4b.2u.29.-i.5r.2m.-1d.12.2s.1c.-t.-n.-2f.c.1u.10.2a.1k.-2u.-2e.1b.-a.-o.e.-5s.-2m.-8.-1z.1f.-28.-1w.2p.t.-28.2k.1b.21.4y.2.17.3y.5.-5.5h.-6b.12.-q.-14.-39.2k.-19.-2m.1a.-3g.-4v.84.3v.3m.21.1a.54.1j.-1d.1u.2n.1x.-k.-12.-20.1x.-4.1n.-28.7.2y.-j.-p.5v.16.1s.-2c.9.8.1h.1v.-n.14.j.h.-1d.-31.c.-23.3i.2n.-1h.-3a.-3h.-p.3j.-2u.17.65.31.2m.-8.3p.-c.5.-11.-1b.-1k.36.-d.-y.b.1n.-1y.3k.-12.f.-w.-1e.1w.-3k.-6q.-44.u.-n.1d.-z.-6v.-1z.-v.53.43.2p.4n.1h.1f.2i.1o.n.f.-2h.2n.2p.-k.-5.-9.3a.-5g.79.f.23.-1k.-6.-f.-1o.-23.-2f.3e.2b.i.1.28.-73.1f.2v.-4u.3c.1o.2l.2p.-a.-8n.-l.13.2.-63.-s.6f.2p.49.-19.1g.-3z.33.-7.21.-25.-24.4q.1n.1o.-1b.-75.4u.-v.i.38.3t.h.s.2s.-w.1p.1g.5c.-1d.-1a.-z.-1e.w.y.3q.10.22.-30.-p.2o.2p.f.1v.-1e.-3v.27.-1q.4d.-1o.1e.-1z.1.3w.k.u.-3w.a.-1y.-69.-44.1e.-1t.-21.6v.-2y.45.15.4x.1t.1c.28.3c.-15.-1b.1y.6.4.16.-c.-2j.-21.17.-30.30.1q.2w.-36.-1n.7.-3y.m.1s.-6x.-5x.92.-4z.-3g.51.-du.-2i.-as.40.7m.96.4g.1n.16.3o.23.1t.6l.10.-39.3p.26.1u.s.n.-5.g.-4.-12.3h.-1f.2k.3i.0.-b.z.13.5.-4r.24.22.-1y.2z.-3.-7o.-9.2i.-a2.-60.6r.-6o.cr.7e.18.2l.i.1x.-1o.-2.-83.-69.-4p.2a.a6.-4h.-20.4r.-cn.-e.v.3q.-17.53.3u.39.-2t.-5q.-a.-70.2f.-g.75.4q.1i.2x.-3m.q.2q.34.3r.j.-a.h.18.-19.3i.1k.-4.-k.-i.k.-23.-24.11.-4x.-15.-6i.-1b.3o.-2r.6c.-w.-w.5o.5h.e.-1y.-7x.-3e.-3.65.-m.-5e.2t.4h.-1b.-k.73.-3p.35.8.-p.-e.g.1f.3h.-30.-j.-1n.-r.-38.10.6p.-3p.8.3n.3h.11.-y.1q.-6m.2p.7.-2s.6.2x.-45.-3x.-13.61.15.-7e.2h.1k.6m.21.-1w.-j.-19.-9d.-3p.3i.0.-1p.-6i.37.24.87.2r.15.2i.1m.-21.-1u.-k.-af.2x.64.-h.i.-1z.3n.-79.4l.-4g.-5j.69.35.s.-6m.-44.-11o.8k.-dm.lp.-a5.-1u.ap.-88.3p.5e.-6k.14.4n.5l.1s.-53.-aj.y.-6u.-3p.-2i.6e.-3.gb.2m.-c.2k.5u.l.-5q.2c.71.m.f.28.6n.-28.4f.2t.b.i.3i.-1p.-q.-1q.-4i.1a.z.-4z.-75.-1v.aa.1e.45.23.8.-36.2f.20.-1k.-1j.1x.x.-6p.14.-1q.-1n.1o.-33.-7z.-6x.cd.i.v.-6t.-3t.4g.8c.13.3r.-k.-3g.-gy.57.-3h.-8b.-8j.-5f.2j.3i.-80.-74.1.3b.-fd.ar.6e.-v.3.2d.-5b.87.4b.-48.-6v.5n.-6f.-bp.3g.35.-cf.al.7v.-1x.bs.-1c.-c.6e.-4s.-79.9o.5l.-3.2i.40.-4.6e.-k.-3q.y.-3g.aq.t.-29.1o.5u.2e.-2.10.-26.-4e.1z.8c.-j.18.-52.27.-2p.1y.z.54.23.13.2r.1f.-1k.-4j.1z.4.27.-au.-1z.1q.e.56.e.-4u.15.-k.-1p.-6f.70.56.46.a.1u.-s.g.3k.2a.-u.-13.-4s.-5y.32.-4n.99.-2r.3f.1y.-ry.4w.c9.4p.5z.-4j.0.3i.aa.36.-v.4e.9.-s.3d.-v.-1x.-e.k.-12.3y.-5o.18.1m.4j.1a.-2q.2p.29.-32.-2y.44.-1z.3f.-23.-19.-r.-1g.-1t.46.n.p.7.-bx.-32.1v.3g.1i.-1j.c.7v.-6u.1g.-i.3m.-1h.6.5.-1l.3i.-6u.-m.-3f.11.2u.1a.-27.3p.-1k.0.-22.-1e.-54.-23.-2f.w.7i.3u.4a.15.-10.18.2q.1l.1x.-k.34.l.n.2w.b.-q.f.-2.-2m.-c.2p.-8.2r.73.2v.1p.2r.-p.i.-2s.1q.1v.-t.-2b.k.k.-3e.1b.-r.4j.-1a.37.-a.7.-2l.-1m.52.-1k.-w.e.-8.1d.-33.2i.5m.1d.-15.-5s.-14.2g.16.3z.-c.8.-a.4c.u.3r.d.4b.7.-j.3n.18.i.-e.-q.2q.-5.72.-23.-1w.-1z.-b.-3.-a.y.7.-27.3m.1q.-7.-1a.-5g.-2e.34.-22.-34.3b.2b.2c.-52.2f.3p.-33.-m.-42.12.e.-1p.2k.-a.5r.4m.2j.-30.o.-12.1h.1n.17.-g.-2f.42.-w.-71.-1m.6o.25.l.3x.-k.-1n.31.4w.-v.-k.u.-1p.26.y.-25.57.-18.-27.z.-3.-5.-7.-3s.3u.-1y.1.-29.25.-2l.68.1f.3l.-x.2x.y.-t.2y.-6.v.-2h.-2.-9.a.1j.2m.-4x.-3h.3c.4.1g.-4g.-7i.5a.b.-2r.14.35.3m.s.-11.-h.c.5k.29.u.l.2y.-6.9.-10.-2j.e.t.2f.4e.1u.1n.2i.x.-7.11.t.o.-9.1j.-1c.4x.-1a.-41.2p.1z.14.1c.-v.26.1g.3.-t.-1o.-f.1e.-1s.-1m.3k.-b.f.4b.-m.c.17.-e.2x.42.4k.-7k.aw.-28.-46.2a.1k.2z.2w.1b.-1x.30.4k.-18.-16.1v.-s.-l.1.3h.-24.53.4h.2q.2i.3o.-2r.31.68.3q.i.-1b.1w.1b.3k.68.-y.1t.3d.1k.-8j.-9.-3.-90.-av.-sk.iw.-ic.-fb.df.1n.81.8g.9q.-3u.1t.c.-3d.5.b1.1j.-7a.-84.-cf.b7.22.r.3j.am.4b.-1t.-6h.a.l.-c9.27.2o.-c6.-d8.-63.e8.-ez.5p.-8u.30.h9.-7k.4m.-2w.4v.1i.9a.2f.-5g.-3g.-3c.-ak.6t.50.-au.46.-cg.i8.2d.a3.5z.-6z.18.34.c.2v.-5r.i.-59.5q.-1f.87.0.4j.3d.36.m.1i.-2c.-30.-4b.3i.-38.-ca.3b.28.-5o.l.5p.-3d.1w.eg.38.-3j.3j.1v.1o.2x.-1e.-1m.59.l.4k.-8t.2d.-5.-t.8t.3s.i.2.-7p.1o.-68.8q.2h.3d.-d.-29.b5.4a.-1y.12.-3o.-46.-18.22.9.2h.1t.-3.2g.14.50.-2o.13.6.-k.39.-1s.23.-84.-7u.42.-dp.-lo.2z.5z.19.-49.-50.-dr.-t.-1c.-86.-3m.g0.4a.-5f.3u.4s.c7.6f.-7o.-cg.3o.-a1.-2c.6a.-5u.-fb.5k.-a1.3i.57.29.5x.af.1k.ck.-4d.-ez.-kn.6m.-ia.ej.78.-48.-9g.-7e.-8o.4.-lj.-3o.-i0.9y.dt.5k.-18.-a0.dg.8o.m.9i.h.h.-1h.4r.5r.-3.ck.-1e.-4f.-3t.1i.7r.-8d.n.67.b2.2x.h.5m.-9.-b1.-1p.6s.8q.2h.-2g.7s.2j.-5.1r.-21.4q.52.-2t.-4c.1z.l.-d.c.-3o.-6y.-5l.bo.5f.59.-h.4e.-k.6c.-93.7v.-8p.-3x.56.-4s.1m.6u.82.1l.5b.-2m.4h.-29.16.1a.3c.2c.-2y.a.86.1i.-1u.4d.-2s.4c.-ab.-5i.-1d.-bw.-7i.90.1j.a6.-au.37.-at.1h.-cz.26.-7s.8x.7d.5x.i1.-2q.-2o.1l.21.8e.-1u.6j.3e.-59.-36.-q.ci.-r.7f.2u.-6u.-2.4i.2y.34.0.-4m.-4v.13.2o.3q.1a.34.-1o.e.-n.-13h.-4w.2q.h3.-7x.7c.-dv.-5r.mh.-2a.2l.-2v.-ag.1f.b0.-2c.-31.87.dd.13.-6u.8m.5o.-3v.j.-i.6q.-7m.-g.-53.-16.2v.-48.-ld.1p.ha.-fj.4h.98.6v.7h.-1z.1l.22.22.-2t.37.76.1z.-29.-2h.8w.5t.-z.-h.5a.-2s.-f.53.-2g.-3.6x.1t.-7.-18.-4f.11.7h.2a.2p.14.-1w.-8g.-9x.b1.-26.b8.-1b.-1q.-5.6i.8.9q.-s.17.1e.6h.12.-1.4u.-6c.-3.3z.w.-1d.25.1n.6z.z.v.28.2p.2f.4v.o.e.15.-66.1n.-ih.8n.1o.-7u.-4i.3s.e6.51.6l.-1k.-1.7a.3p.l.3.2z.-7z.82.-bg.-i.-se.-eo.-52.-x6.-10i.q0.am.30.36.-wq.-15t.-ct.66.-1zy.3p.-3v.-54.-z4.54.-3k.-133.1im.kx.p0.-c2.dc.aa.-112.-1.sh.vm.-1m.k7.8l.-bx.5o.hx.-ym.fd.b9.by.2a.e9.-51.-qp.kh.-6m.6c.8y.1d.-ob.-9z.16d.14.5t.-96.hc.-4l.g4.-d.3s.gk.-18.n9.35.-64.-tn.-iu.w6.-16.-30.-3e.dy.-qv.-4f.k.aa.8j.a5.ag.-q.-8x.-4m.se.-h5.f9.-4w.8c.al.-32.3u.-dz.3n.1t.-31.hk.1i.7l.-1k.81.78.n.v.g.1k.3d.-6e.cj.3c.6t.af.4w.am.-lg.-9u.-m0.c9.g.-v.4x.1r.-g2.-10t.c2.5a.-dl.t9.-2b.9y.2o.2g.31.6.6t.s0.-h.-4v.-cf.1q.-82.j.-2w.-dl.3d.-qo.-b.-9r.ck.la.n4.du.-2t.sy.-kp.a2.-3m.g.hn.-2t.13.-ft.54.-68.kj.-r.y.39.-bd.k0.-24.4l.3o.11.n.-18.-4z.-7x.7y.-21.9x.3y.-4p.-ag.71.4j.-1i.cq.-7.-28.-8g.2m.gs.8q.2m.-i.-26.2d.1e.-b1.-7.2g.fr.3d.-36.-41.81.-jj.83.-m9.6z.m0.-1p.76.8x.2u.3o.-n.39.1j.90.-5i.-7e.-2p.8g.-c8.-6z.ca.-3x.-de.fe.-5k.-34.-ax.-o6.10g.5p.36.f4.-7w.4q.7p.-6t.4r.-au.5t.-1p.-u.-br.ds.4k.17.5j.7c.l6.-1e.4i.84.3t.2y.4d.1l.-cd.a5.6j.34.-1h.1f.v.-f4.bv.-v.fo.-nk.-ew.3t.c6.21.-l0.lk.c6.-3v.1t.2p.y.2k.-55.67.-i.3y.1v.8.16.1o.-5k.-3c.71.1k.5k.3u.55.-l.4c.co.-77.5q.-9w.hr.4j.-5c.-1w.-sp.di.ac.2m.gz.-8v.4x.60.-2k.-5r.3c.4n.2j.1w.14.2b.y.f.-31.-by.o7.m.30.-4a.dz.h.33.1v.-85.-4y.3v.-dz.-1i.-16.-q.-qs.50.7o.dw.-i.-o8.2t.-70.-hu.mc.-g7.xs.-45.-f4.-4y.os.fm.8v.6a.-1x.9m.7g.-3k.4b.5g.6c.-y.c1.at.-1g.-5p.-h.-6c.6p.2d.5n.-43.12.3f.6l.-hi.5j.5a.-vp.d6.-fp.hu.-qo.-3n.c4.tg.-22.2q.-1z.-24.-fr.-13.pm.-he.-uu.js.mr.d1.8.f5.5f.-85.56.-1c.-no.-6f.-jn.jp.ct.-1.-ou.8k.-nq.-4e.84.-w4.-1jd.b0.rg.-4y.-bs.st.et.a8.-7t.-cx.5j.32.iz.-5w.-ia.-ms.gf.-6w.-53.-iw.-dx.5i.-d4.-q9.1dt.5e.-h6.hs.-5e.-k5.-9v.-pn.ta.-g6.9q.-d4.cj.pc.cz.f1.7e.ca.-3p.-g.91.46.mv.-d.-5b.-7a.-d.-s5.-1t.-5i.5p.-8a.f.50.69.1o.-207.-o.-m.1z.-8v.-bj.2p.-153.-ax.f3.-t6.kl.ik.-nr.-hz.g6.-on.jc.pp.143.-hy.-8t.cw.-46.ac.-i3.-2hb.-8k.5w.-r3.ay.gb.5h.-2v.148.-bw.-gf.-ab.8f.-gj.hz.kc.-79.9.-hq.-ef.14c.61.fr.12.b.-cr.dx.kp.pc.-6m.7m.26.6e.-bv.m5.8c.c8.7u.-9a.46.-ym.-6m.3r.3p.-1at.-4m.-gs.36.6.1v.j5.uj.-10w.-b1.-75.-gf.47.-x4.-oa.-1g.47.-bq.55.yu.-cf.8j.-17o.-1s.-46.6f.ge.6x.1k.4b.go.k0.ak.-dh.b1.-4z.-80.-pl.-o.f4.jc.-g3.z7.9e.a3.9s.-es.-dq.bf.-5t.ai.dq.4c.-3f.-b0.-cc.3c.xq.-63.-92.-hy.-8r.8s.3s.-5t.un.-2p.-16h.-fc.-5z.-37.ki.-lp.76.-7t.cs.-66.-51.fe.-gg.j0.kp.-ep.dv.71.t.8a.-19.-9b.-k2.d1.pf.-2h.-bk.ea.cz.-6z.-3.68.y7.-15.-h3.-1o.n.2q.-dv.df.-6n.7c.-v.-jl.40.-et.-49.-3h.-7o.6m.2.-9d.-2f.lk.fp.-iq.-6g.46.-i7.-hr.f9.-k7.n7.-2e.2q.dw.41.-15.-eo.c9.-2z.ar.ao.ha.-1b.-4m.-6.7o.-r.35.3p.5p.-26.-3a.-1f.-6d.-5h.3w.-1f.7v.-h5.j4.1g.-11.2.-1a.1h.fc.65.-4o.-j8.63.l6.-bz.bc.ow.-48.1j.g.8a.fs.62.5w.-1n.-6p.-27.-m.-6n.33.6x.39.hx.z.-i.-hq.3i.4f.hk.46.7d.52.b4.-5t.5.3d.-2a.9z.-29.-2u.-dm.-67.-2c.-71.x.83.-6p.-5s.-48.-bu.-8x.9b.7a.-65.ls.9i.2l.-2j.-19.-dg.-20.62.-f.1d.6k.-as.-9w.7b.-qv.-99.-bs.-3d.7s.-1i.-km.4q.-2j.kc.mj.-5s.4s.9.j.-a9.-73.-nc.1h.-70.-hi.-2c.6t.br.q4.j5.-w.5k.-1y.34.-3f.bo.pj.3w.-6w.4q.89.-e.69.2a.-20.-c.46.-30.-2p.a2.-81.50.-24.4r.3c.3z.7c.6r.k4.10.58.5w.1w.-9h.4c.7s.3e.4.-c9.-86.1t.-3c.3c.88.3n.-52.ay.-8.-j.-ae.62.az.fa.-2i.e5.-4.4m.-4d.9m.-cb.-41.m9.-43.4f.am.23.5v.ba.-nf.25.98.75.-5s.-b4.-v.td.6s.-2h.-41.18.18.av.5g.-ci.7n.9o.28.-bo.cf.3g.-42.-by.e5.12.40.ng.-7x.-1l.r.-1w.9j.-g9.8n.5f.-a1.-9o.-5u.-s.-4r.-nc.-7n.5c.-js.o2.y.-gi.s9.-84.-fx.2b.1b8.-29.6g.4m.1d.jd.a0.n.-3t.22.-v.-2o.-9h.-5y.4m.-1r.jm.6j.o.e.os.-54.72.9q.4v.1b.-3t.-5e.-1s.4b.-2p.5h.bv.2y.b0.3i.4m.-10.hw.-1g.-dk.-db.-6t.f4.-y3.-4z.-s.-2z.r9.-fz.-23d.91.i6.-4q.e4.h4.et.ms.fu.48.47.-1a.2x.-6k.ce.4s.-m2.-cg.-c2.-9e.6m.-cs.10k.hc.bp.-8h.pf.24.m.21.1e.1u.-a7.3h.-44.am.0.cb.1r.j0.-14.-63.bc.-9z.3i.-9t.-5.6l.-4.4b.-xd.8e.-ag.ds.12r.k4.86.4h.-6m.2m.-4j.-t6.71.-b.-8u.l3.4g.a5.5g.-2p.3p.5p.3a.-7.9c.3b.20.-6t.-48.8m.-1h.-72.62.-59.20.-18a.cb.-5j.ei.-4h.-gy.5n.-8a.7n.qy.-ly.-ad.5.-qd.-6c.ae.q8.9g.fq.50.2t.iv.v.66.-12u.ei.3t.-l.ir.-uq.91.-m.bs.-8c.4f.1f.-az.hx.8q.3f.-2n.3a.-9t.-17.-lm.-t9.p3.-bw.-n0.f2.-1jh.j.gq.-z1.-8m.-of.ds.-m1.l3.a2.-85.bd.33.-71.x2.2y.-aj.-5i.-zg.-cx.ol.7r.-1qc.-3rf.1jk.-1id.25b.1ch.1y.-hp.-rl.144.cs.d5.a8.-4k.13y.-2p.-8m.ni.10k.pk.13.14.bz.1y.-57.-o1.fl.1q.10.-4f.k1.6i.42.2x.29.br.-52.2c.-8g.-13.-om.io.s9.2o.bd.hz.1k.63.iv.-aq.-4q.5e.ab.-4v.23.-gp.n1.dq.-ai.8k.e9.4e.-4m.-u.4n.-mn.-46.cx.2.eb.bm.8h.-10.-28.-2m.-f3.23.ek.c9.1a.-33.-sy.j0.aw.7a.2.bg.fe.7r.-2s.-n.dq.7r.48.-b5.-bd.ep.-2l.bp.2u.bf.-6b.9y.-6z.-l3.-8y.jx.-1r.e5.3q.-d4.7p.13w.9u.4h.-d0.-6e.2d.-e8.1a.-nj.-lz.11c.ba.8v.-i6.-7s.-91.-se.1p.ff.-xh.z9.91.uu.-2x.71.-33.-3v.9q.-9.6b.-5l.55.-4d.4o.-eq.2s.-bq.-b6.jt.5m.cr.61.4m.-3i.3j.-4r.-dx.js.27.9f.-9x.9v.64.-17.-hc.jf.-5y.-p3.-1d.-17.ix.-v.9r.a4.-2n.-lx.90.cv.-cm.-be.-kj.lk.ki.g.-6p.-mn.-31.-6o.2.ka.-9s.58.-d4.8t.hw.-91.-79.-71.-mn.s8.-fs.-s0.v8.-gt.-iu.-fo.9u.bd.-f8.-pc.-ae.9u.-1l.7y.-pp.-vk.-39.9n.1bj.-6i.-47.1pu.ap.5x.12w.d9.d7.iw.-2m.9n.6t.24.-ab.44.as.po.qr.aj.ct.-ku.jp.rr.-10i.-c0.nc.-6v.z3.a.cl.91.84.-cc.8.-14w.-wz.-n.-8w.28x.-57.-7m.-b4.-1h.-tg.cv.-dp.8e.o7.9i.-82.e5.-ef.-g8.s8.71.-i.48.2k.-pd.5u.40.-118.1m.bt.-jr.4y.1ki.113.dk.-9z.e9.-40.-o.cl","mxn":"2m7y.-j.-j4.-l9.49.-of.-h9.d0.fo.-g7.-gq.2vq.nu.-14j.0.-88.6v.7y.pq.-11s.-3k.-7y.g5.2x6.-p1.-5x.5m.-3b.-fo.1ys.-9t.lv.pl.-ht.5c.oo.-i0.14b.-ej.-sd.-25t.-1a.6e.-t8.21h.vs.-1wf.-l.-o3.-ke.2n.9l.wq.-mv.kl.-8a.-d2.5dw.pg.-h9.10.-1h.-et.hw.fj.1s.-a.5b.-c0.42.4a.7s.-fw.-8b.4y.a6.k1.-rc.-hg.h5.f8.-1dh.-1j.-x.14o.-py.ci.1ed.-r6.-wz.1sp.-ft.86.1jn.4e.7f.27.-g0.13t.tr.-9k.-gu.rr.gn.-o7.ft.-fi.-2u.-dg.35.-b2.-k9.-y.fy.-r4.-m2.bz.-2g4.-79.-ku.pv.-5h.cb.-k8.zi.7g.j6.df.-bv.-9d.15i.-io.a3.2r.-df.-bg.os.-gl.-jy.-fl.-2m1.-jj.2i.-2i.-mx.89.43g.1cb.-b7.-188.d3.y3.-f1.vy.-wb.-1ij.-pa.1jf.1s.-5g.-17p.-ot.2i3.-me.-1wg.ue.r2.-pi.178.-ze.11k.az.-38u.-ki.5i.1x7.-29r.ae.q3.ve.-zq.27t.-2v.-pg.ot.1iu.-1ne.zi.7n.-25q.-3s.-gd.e6.26q.71.-173.36.-1si.-141.46.-2cq.-4ml.44u.-2bp.-jv.-ba.2vj.qx.-469.7f.15b.72.1kp.-qr.-5i.79.-ku.-ca.ca.1eu.2xq.kl.47.3r4.1hy.3rk.2ov.-3uv.-6s3.1lu.12z.1bm.-rd.-5uo.2fn.1w.4q3.-nt.3sw.-20y.11n.mw.37g.-22.135.-113.-2e8.-xh.3yb.21n.2p.-38b.o6.-mt.-ia.2xz.-2ca.2qu.-9r.mu.hn.-29i.-164.-na.-n8.-fk.1p.11n.za.-1ez.21o.br.1a2.-1o.-12s.-1m.um.-bu.g9.y9.-2m2.xr.hx.-w2.yy.3p.1cr.1hc.bd.ps.1q.-kw.-na.ng.ah.-jx.143.-yn.-b6.55.l6.-nv.-10k.im.-wg.em.-qt.-oh.of.-1e3.-bz.uw.4a.-se.77.-2y.kc.5i.3u.as.7p.20.1re.-12q.75.up.be.-3f.-8.17h.-7b.-6.-eu.-k2.47.-3f.b4.-lb.-x6.im.-7b.7u.2l6.g.9i.95.-fm.tt.-6k.-hx.10e.xr.-fw.-13v.1pi.17.-ur.1fc.-mg.-1dz.2cv.-1tw.2ea.-1y.-xn.-1ld.15m.1mr.-1sf.-5u.1kf.-le.1p1.-116.m7.rb.12p.-1hk.cj.-1ku.-6g.2he.-26p.24o.2aj.2y.-1ql.-1fz.-a4.o1.2h.-mq.mw.-px.1j3.1uc.-1m6.-3of.-1q4.1vg.-34s.357.1ms.ke.-eg.-20d.-ld.he.-2dj.106.-ob.2jj.1yq.d2.-16b.-2ix.6x.3me.g2.-o7.-3f2.3pm.-6r.-fl.1x.g1.dp.2w.2f.5r.lo.-dm.-d.1ja.33.-21w.n7.-1gd.7b.119.vg.75.-1qi.-yw.2x2.i5.9h.-t7.4q.mo.-2r8.lj.1db.-1as.-1i.xe.kk.a6.-1aj.-84.-16u.1nr.wn.j2.-1vy.-1f4.fs.-ih.lv.ov.-mq.110.52.-10v.4s.-1oz.z6.-bw.-8w.ur.-144.-29j.-1jn.32n.-9o.nd.9o.2p.3d.su.-zj.19p.-4c.h9.-1de.-bk.a9.-1k.7k.ae.1y.-1a.-1da.ip.1kh.sy.-13w.wl.ja.-1np.kd.-38t.4gb.1ca.-m0.2o.-bl.7c.-18s.zq.-i4.r.ij.6m.qy.163.-10j.1bt.aj.b8.11o.-6d.32.-ye.44.8q.1k.ob.-d2.16v.77.-dh.1o.5l.6y.-1t.32.oh.-1r6.4r.1sa.-252.15a.149.-t9.6s.1m5.rg.6r.-15x.-gz.-196.gk.dd.4a.-js.-mv.-41.ha.-nq.-cd.tr.-28.l2.l9.-1g0.-1hq.-uv.bz.15n.1di.-xf.-2u.-zt.-7f.b4.1fj.5h.kv.-u.p2.-6q.-s3.13w.si.12u.1em.1cj.1gs.17s.vr.o1.sa.-13w.3dd.-tv.1dt.-3yg.3ba.-2ms.-11m.3pf.gt.-4e5.8x.4j8.3uq.1g6.-4ps.-4bk.11o.-hd.xp.1z8.-1cf.-13t.3bz.-wi.-hw.-1v.255.-18j.-236.ma.14z.7b.124.-aw.-5u.1b9.eh.1e5.-18z.3x.ge.-2if.md.18y.-5v.13u.-11h.-61.332.-2xd.-q6.3cs.-lr.1i2.jh.-1q6.1q2.-1z5.-8x.1c4.cw.44.1y.-348.nc.3ky.-wc.vn.j5.c4.-vv.au.9q.-23h.1wf.-1c1.-2q9.1j7.1gr.-ed.-2m.1aa.1rq.29f.-sn.-ch.x2.1br.3l.dw.-8b.-6t.24l.nq.-5g.-mn.1qp.-pq.-2bo.1id.2f.4v.-3t.1si.-p8.-7z.1mk.-f.162.-hh.ng.rv.-2cm.-m4.-7i.-r1.-4o.-dl.y7.-1zt.-1bs.1xb.-qx.-5j.2r5.1ei.12s.cw.1rs.1j.-ec.161.-15y.-vo.d3.1d9.-v1.-1hi.20v.-mm.2tb.l4.-cc.-e2.2i.10f.-3y.-1tb.-2gu.-24m.2gv.6.-h6.-d4.-3bv.-v6.1rk.1jk.1ku.1hp.v2.-7u.mx.38.sr.18l.-1j5.rs.vl.-jo.1gz.-18x.14l.-17e.29w.-c8.-ds.-6o.ca.tc.-174.-60.-1yy.ny.pq.1z5.-fi.iy.-37n.-cx.152.-2k0.1aw.dv.1fo.1du.-1nz.-28j.-1a0.1c8.-9f.-1id.-qa.24w.yt.1v3.-3k.zf.-1qs.qb.-jk.d4.-1do.-11p.1or.40.er.cs.-3eq.216.-6a.-g8.uu.1jd.-7f.ip.242.-ir.-7l.1d3.36r.-pe.-ts.4s.ti.-1cg.t9.u3.1e7.-1f.-y8.-10k.q7.1n6.-b8.vv.-bn.-1lt.147.-u9.14g.-u9.1go.-1fk.-3l.1bd.jz.4f.a4.1dr.7r.-2xo.4l.-5v.-78.-18j.129.-16w.pt.ds.1hv.1sx.7g.15k.hg.-fh.-ii.11i.2p.pn.-1am.2cx.-18q.-4r.ta.-2dy.2hv.b0.ll.3x.-tq.1hw.-p6.1m.11n.-3pn.-mo.375.-3mo.3q.2a3.-5cr.16.-3tt.zo.3cc.3ia.1oi.nw.cg.-8p.1pr.-a5.34a.26f.-1zh.1qg.1q6.-rt.179.92.-q3.y3.-14o.ch.11f.f5.1bu.o8.ow.3u.149.xh.2ez.-11m.2mr.sc.-2d.43n.f5.-2cs.1q2.46i.-4df.-328.38w.-51d.4nk.3fg.1tw.27k.-j9.205.-1aq.-50.-21a.-vd.-2l6.-1of.3ge.-2sq.-1g.1ao.-6sz.29n.-16z.2rb.-a2.3m2.-oa.1zn.-280.-1or.1gq.-22e.3hy.-1n3.bi.4wk.-oh.1sm.-1tp.29z.2xe.-uc.vx.ri.-7e.-id.2kj.-9e.2kv.-1wg.3o.jd.-un.1ga.-1fv.1v.2i6.2fz.-il.-10h.-2k3.9a.73.1n1.-qd.-4bf.4kc.-sr.-1rw.-hk.-2k3.t3.17a.31c.-247.-439.-1ou.39d.1w2.1xa.3kz.-1fv.-68.2g2.1af.22.-1gn.z9.-1b.-1pq.1fk.2dc.-384.-27m.-28x.5vc.-2e4.-2i2.68.4ec.df.1f.141.-23z.1f5.10q.-b5.1fb.1gz.pm.-3nd.-1xt.xm.yz.-39j.-wl.1rz.2yz.1o8.vj.-gw.cq.-1nq.-oj.-k.ob.kp.-2cc.uy.-kr.2zh.37x.y3.2j8.22x.jb.oa.m4.-4h0.1d8.2f8.-2iy.30c.4y.11o.-5sg.4e4.-2up.-bh.2bx.27r.31z.-8c.w4.-dqy.p8.-8jt.8en.-36a.-1n2.6tc.-5dy.3ki.-bq.-1z4.-1ci.-3y.3d7.1m0.18g.-1zw.-2yj.-1w6.-13b.-2hc.2wg.-28j.66h.13s.-2pr.gt.60w.-2r4.-3cu.1dc.5k6.1j0.-1ub.1xi.29s.-lb.3ct.zz.-1xj.-d4.xc.1ky.cb.1y6.-2em.j1.-n.-208.-4d7.hg.42w.rf.ib.-q1.mz.-1wj.sw.1sy.46.-1in.6n.12z.-zg.-lg.30i.13l.1vm.ao.-16l.-4g1.2z5.-1bi.za.-24o.-1df.2sk.4eu.kc.2a0.1ix.-385.-7ve.318.18q.64.-2ub.-36h.1eq.2cm.-5a4.1tr.-q3.2hm.-4vi.8nn.-cu.1xq.-27i.19s.-478.wh.41z.16i.-7ff.3tp.-td.-3ap.3mu.3bv.-3ld.2h3.3f3.-mq.-1dg.-175.-1ay.1dq.-o4.-41h.46b.4w6.-1z7.-21x.17b.17n.lw.-jk.qj.-23h.-a2.381.130.ya.-34g.-16p.1vy.et.-l6.2c8.-1yf.-3s3.3yk.qa.5u3.-3ay.4uo.-2zt.-3di.-9s.2ke.2q9.-2ms.3k.3o9.-l0.-3ie.-aq.-ha.-8p.3pn.k1.gq.277.2nb.-6u.hm.2lo.1pg.-11o.-4hu.5jv.31m.1cd.9a.1rl.258.-xi.-1bv.-2y3.1m3.585.1xr.-3hc.1ri.-3gj.1pj.-4v1.275.81y.-fyk.-1ss.3i3.2rq.aac.-3il.yf.-2t6.2lm.2bd.-md.5vl.-1kd.2ga.1n.-tc.2bf.ww.1dj.-2tk.4zu.-3rr.vv.-1gv.-2m0.7j.-46i.1sp.-23m.-oy.-h3.2qy.3xf.sf.-2qy.2z4.2v4.-1kc.-3hz.-2wg.2dz.4nh.3ta.-2xp.112.222.5x1.49k.-2ke.-1bi.6rz.-a5t.as.2wn.-su.-1o0.-1jw.dl.5a.-4oz.-2ln.-3p.-10p.-5p2.82.1r2.-187.11k.1r6.21c.155.-2ca.234.1hd.-49x.-1lf.-365.-1ws.r19.afy.31h.fp.-4yw.-ow.4d7.2yu.-13w.2xc.zy.2nu.-ay.-1ee.fp.-11b.1oe.-2nn.vr.-2wt.hb.3mp.2s2.-20c.2rv.33b.-25a.-aj.79.2h1.1cy.1su.-1dt.1c5.-200.10k.66k.8m2.-2bi.-wt.27f.7n9.-18.-363.-1ys.2ia.-3aa.6tz.2s.-4ws.-608.4ht.-47p.3fj.-6l0.-4vk.-n.-60.-2d2.-yi.3b5.17c.-1s1.-2t.-5c.1a7.5l.2nk.20g.-1h.13u.-5ho.-1m5.-3ue.3lc.19q.3m3.-lc.1i7.-9rd.nc.-2aj.3en.2fw.-3jl.k0.-lx.-5dg.yi.-2vb.-1w1.-1ci.-2mh.dh.-4fi.2in.-34w.1jf.m1.-i3.105.xu.-36h.1fw.-5j7.r4.-10a.5cq.iw.-ed.47h.7mc.-ji.-5wr.o9.36j.-vk.4qw.-1uy.-3y3.-1ud.bn.45d.-5il.-33f.2f0.-2li.18j.1v8.2eq.-oa.1xs.-4uz.-fr.-yp.-je.-2qd.-yn.22h.-3fl.85h.-5b.-3bm.-1me.-mf.-2eo.3fj.-cg.3q7.pe.-md.-4qs.-1p7.-3va.1la.-1q2.lm.106.-24.34u.1wl.-1y8.2mw.16y.u2.-z2.c8.pg.b4.2yb.-20p.-4ov.1jb.-2he.4v3.-5t7.-4e9.33n.fa.-34w.30h.43e.ju.1s8.-2pj.-2as.16o.31x.1s6.-1av.18.4fd.-fe.1k1.-31j.2nf.584.-100.vi.3sh.1x5.4u7.1a7.6s1.-2dr.43d.su.-1nn.1it.-rf.2qx.7ex.-3be.-ke.f2.2z4.-gh.-cv.-2zu.5ce.-27i.1pp.-195.-24g.18a.uc.q.my.-1p6.-2yg.1z9.-1fn.-3oc.-4t.-tl.az.xr.2fe.493.-4m3.5lr.1za.-la.36d.-1z.4fe.3u2.-2f9.z9.1ds.1ig.2l7.-jd.5vn.4wp.-vw.-89.13e.-4as.-6s.1ie.-18n.1p8.315.-13h.n7.-ft.-1np.-1y0.-1f4.-1pw.1dh.3ny.2i7.-3ej.2i3.-131.3dl.-vb.-3w1.-5ds.h3.-pg.-ir4.cxn.-7rp.-bh7.4yy.1r7.2kv.3ap.51n.-1q0.4pr.2wy.-6i6.-1mk.8mo.46v.-3vn.-3vp.-76q.5de.2e4.-2ob.cb.4zk.1pl.-fw.-3we.2i9.19.-5w9.230.-4q5.-1ma.-a2p.-5ne.639.-alm.2ui.-3d6.-wa.b1o.-1li.if.-2cp.20f.-2te.5aj.293.4pw.7uk.-41v.-4tx.1tc.1du.-xx.59f.-7gz.jnn.1nk.-17q.a4t.-1wv.-1hx.5ha.1pj.bo.-5r6.-13w.2nr.1u8.1to.7t3.6s2.hu.4gt.4s5.32v.2k.2hv.-7q2.-39n.-14o.-2tu.-f4v.264.5z0.-bso.52x.-6gr.-38c.-2h7.662.-1qx.-w4.d.-1vr.1yj.1ml.2cf.-3na.1qy.-3ww.1vi.-6p5.41r.-1ne.ic.29o.5r.k9.5op.4ol.-4g8.35k.vq.17y.hm.-3zc.3y1.76h.-sc.2rf.2es.217.-2wp.-2x0.1te.-18z.-2h3.-3c0.1wi.-1kw.-4s.4db.1gm.rq.-2op.-1nr.-1d.tf.6hv.-2qx.-7lv.36l.-3jw.-ffe.-1od.1p1.31b.3im.2kl.-9il.5ul.-32u.-6o3.bpl.939.7ld.-66m.-yf.-9u.3by.6rl.24w.-89t.79a.-3km.-2oo.my.-5gc.-40k.34t.-846.2ws.56t.537.ku.26e.-4o.5pj.169.-52w.-bks.9l.-bhf.8zw.1ca.-4x1.-wc.-6r5.-67h.-75.-bg9.-634.-8zb.4zx.3o3.2c4.-zn.-5u3.79f.fs.-4.4e6.-24n.-17t.-mg.-px.2zm.-1tz.8vx.154.-168.-1x5.-1se.3wr.-4wi.1b2.4ch.65n.1ar.4j.354.-1la.-43r.-1ly.3jy.93g.dh.28k.xy.1eq.-g9.-17o.jf.3pd.-e0.-1ng.-yc.m8.2dx.-52.rw.-2q1.-1sv.17k.4vh.zj.1j4.-142.2ja.-2c2.7g.-64l.-29.-3gd.3lk.l6.-zj.6pn.3a0.au.22p.2v7.-2xq.-16t.-2pt.-1qi.wb.2ob.1d6.-2y1.-6l.6ug.4gh.-1zf.1rg.-2t1.39x.-2jv.-4iz.-1o.-2yk.-4eo.3fn.-z4.683.-6w3.b7.-4o4.41r.-7x4.9e7.1lx.-3t.7wi.1mp.-if.-3m4.-8m.1b7.r3.3i2.-3ja.316.6ez.-2a8.-3hx.f3.50f.-1np.30c.1hw.-57d.542.1o1.60.-oa.2u0.-361.-4v8.2fy.4co.-j8.-27.246.-ok.22f.1cq.-asp.-4i7.29x.4rf.-te.-l4.-1fj.-4ct.id0.-3zi.-c6.1a3.-1x0.4fa.5qm.-181.-5bj.-1m1.7re.-2tu.-55a.4tx.1fu.-282.-1b4.qh.4de.-31d.-15t.8j.1eo.3by.-r4.-c6z.-1ye.7ku.-78m.1jh.1mu.-1u.342.-1vc.hy.-8j.1iy.-2dz.22j.1za.2p0.-19j.-1n5.84m.-ir.1fo.6y.1yj.-25x.-i9.2qv.34o.1j1.2gv.-1r3.2q3.bw.9h.-1ev.30r.3mp.2yc.1qt.-2jq.-3ie.-4hg.5et.-3zw.4ew.-3b6.-1il.ek.-4h.-2rt.6el.-2t6.66.25i.1rl.1cr.-6l.2e5.-5te.26c.1m9.-18h.24m.-1g0.3x0.-3k.114.-hg.yy.1i0.za.218.-2dj.4v.3aj.-4pm.23c.-6sp.59o.-3cx.-54m.4h.43x.63s.-10t.19j.j7.43p.1a2.ce.9e.-14t.6f.-3xb.55y.-6wq.7e0.-av7.-71a.-23p.-c8r.-fop.mho.-3yu.28s.3qd.-azf.3so.-cox.32r.-te1.cxd.-5fh.c5a.-fh5.fxw.4ww.-e1m.1clc.3rc.1za.-n7k.kjv.54y.-fhb.d2.pc6.gpk.-7xk.6u1.-16p.b18.-6ia.hck.-fjc.cs2.dx4.7ue.-8si.-2mz.7au.-kni.b3h.5n2.-4qq.3o3.aww.-kc8.-dxm.pbu.-ru.-6zo.-db1.-49y.-j6.7c4.-3wn.-57w.9x2.3mv.3j4.c5g.-1id.2sw.-s8k.mjp.10s.676.-8s4.8fm.-78g.-5ef.97q.5ce.-1l6.pp.2f2.be3.-8l4.-4ku.ki3.-ii5.7jp.-pn.741.1r6.-1g.54c.-m97.25e.22y.-19w.qt4.10f.-1ul.-5w.6ei.3b7.-1g4.-4d2.-17.o5.37m.-674.4mo.-1q.53w.bte.-7jk.5wj.-dp9.-8pl.-5yd.-5cx.1ko.-abb.4x7.-3am.-bm2.-a0t.fiw.lh3.-esj.ngo.-sr.-1gw.-4l7.-b7a.adw.-67a.1jy.cb4.3ep.-32w.-8hk.-11x.-7t7.1tq.-6we.-99m.3kj.-e3t.5d7.-2yl.5m5.f50.4nr.5bb.-6i8.a39.-gvr.5bb.1w7.43j.2tc.-3yt.15q.-7zh.og.-7jw.bve.-2kn.-1dp.3tr.-62j.enr.-4yu.1ic.-n2.-2tw.3il.-3zb.4r.-14b.6wh.35v.-32k.j7.-40u.20j.pz.60h.-2f2.5uc.-26m.-2ig.-5x1.46n.841.-2h6.bnd.17u.-ur.-6my.20c.-9ef.3fe.-30e.6tz.ax.2tr.3xd.9bj.-eco.eop.-evf.bc0.8fi.-7u7.5sl.arg.-6ru.1sm.-xx.5a.-12t.42y.-2nu.4bs.-1wq.7o9.-1gp.3p5.3v.-6cl.8en.590.-7b2.-3b8.4a5.-8w5.p2p.ak9.-7cr.1n.-ddn.5od.31a.-5zd.-4lk.-2f1.8r1.-3lk.6o1.-4ic.1u6.a2.-ac.-1ep.-5c.87b.e7.-12d.5zr.-cs.28q.-2g4.-33x.-2i3.3nm.54d.-pp.4vo.-3ts.4tm.-2x1.8ix.-5wq.31k.-bdt.-2jn.-410.lp.3xg.-8ux.ahw.68h.-138.-5f.45j.tx.-rv.589.-71c.-48w.33c.4e.82x.38s.dg9.-2q2.192.-1j0.-3w2.-8jg.148.2cs.43i.4yc.q2.2dc.13e.-4fy.4ky.9vw.-7t5.-2k.-c93.ato.65o.-1y.6re.-7cb.1c1.15l.by.-4ix.57t.1gi.6bh.12p.-4ah.21g.-1yr.4by.-8i.-285.iuv.-3lc.21c.2vw.-307.-1xq.g9.-1ma.-336.-2qx.1xf.-9tl.eq.-2hq.2yk.-8q7.34o.2u4.6ke.100.-5a7.7gw.-2z.-e1j.f2j.-9om.mnc.4b4.-b1l.-aki.dqd.3tr.-177.3i7.1h3.10p.54g.1vu.531.9ea.e26.-2pc.-26n.6os.-782.-4ou.-rw.6y2.4xr.-2sa.5tv.3j9.-3eb.66q.7kh.-59c.d92.84t.-ar8.bqy.-b8g.wc.-dpv.-7zx.40d.hgg.-8ey.-26u.-88.-3yt.-4v9.7jz.87s.-hz6.-hh8.8ri.flb.3cy.-2xt.9yk.-tz.-8d8.3ya.lk.-by3.-69o.-ewo.9yq.8g1.-11n.-f43.3mq.-dsk.1gm.8a2.-h7u.-yd2.aj7.gua.xm.-4zm.isa.1c1.2z8.-2h3.-8on.6bc.-u3.bgb.-7b9.-7y2.-ems.5s1.-4sd.-6a0.-agr.-7px.41p.-8d7.-gvc.13es.3ez.-dn8.gey.-33y.-bnk.5fo.-3vj.j90.-osx.5vh.-8ff.7p7.bpc.17i.4j3.-gx.6z7.-5za.-1v5.-ne.37s.86i.-3dw.-31c.-6e7.61u.-9b4.-23w.-9on.-1qc.-60v.79o.4qg.1wn.8dz.-13h9.55j.-m3.3f5.-adk.-efj.7az.-icb.-5n9.6lu.-l14.6oa.7mp.-ae9.-d2s.8rq.-fy4.9w1.c0t.eoo.-5wj.-2q2.1w5.-1kc.5ym.-6y5.-p5j.-22s.-6qq.-a4b.2f0.595.fo.-2s1.j19.wv.-9of.-6l2.9p5.-1qf.dtk.74j.2tt.4lb.-cjv.-7vl.c6f.5qq.9og.44m.-689.-75e.5de.8r7.hmm.a74.-61p.-4bp.uy.-6ot.4y3.1vs.2j3.7k8.-2v4.7qr.-jgm.-8eg.-l9.2l6.-jaa.-p8.-a0v.-4im.5a0.-3na.933.dir.-dxe.-8nk.2q.-cde.4f1.-m65.-8i.-vn.-30c.-8bm.-k5.i3y.-4ug.6qe.-sz7.2m2.-4yp.3mr.8za.581.429.-3i.58d.9sf.86q.-alk.5gh.-3ke.-6ha.-feg.-lu.515.6tc.-5ts.jv5.-2nw.bqa.-bc.-7vi.-7m9.88d.-1ro.8h1.4kg.-13p.-ck.-74f.-843.-8p.j2z.-7o3.3ct.10s.-3rc.21y.mm.21f.isv.-bcc.-kyk.-41t.-1tz.-21f.a8d.-es3.un.-777.5oo.-28y.-2oi.6ql.-9hx.84e.4zj.-7st.5bk.c.-2on.23f.-j8.-962.-35q.a8t.9dy.-2q0.-6zb.77m.7fl.-4jl.-dd.5z9.97g.1d6.2ns.4y1.-932.369.-cdn.3pe.-75r.1sm.26p.-b9r.-3u5.-6zc.-qo.-3v0.-3s5.43g.-r0.-6v0.-729.ai5.3qv.-8ln.-2o.-21l.27v.-9ff.qob.-kfz.obb.-896.3r2.6cn.-3zt.-1kj.-8dn.-1my.-4oc.1f3.57s.8m7.5w.43u.-2rc.1mv.-3so.ds.2ab.387.-16o.-31x.-1sg.-p7.14l.-2fz.-2cw.3bp.-ae9.4cd.-64h.qo.-4nt.xy.4wi.b5i.8k1.b8.-eti.4jq.41t.-56b.wu.8x8.-4qf.b6.so.y1.5t2.-uo.2rk.-2o1.1f7.-42o.1jw.-50n.1r.3i8.2d0.6ec.1r.-1ag.-eq.-4xs.1iy.3j7.5m.-1dv.3qz.3ot.2y2.-1e5.59k.-3fd.43r.-52l.3ny.-1qt.8kt.-aak.-1tx.-19e.44v.-3zc.98.-1gg.-79u.-789.ml.-14f.-118.8li.3cs.9zf.59t.6wk.kc.-118.-7q6.-2mz.-2c4.28n.-4qz.-6jw.4fy.-8km.1mi.-4w.396.-1b9.3jt.1ph.1ai.8za.7vn.1q6.-6a9.72u.-24e.3lz.31v.-118.-hw3.52x.-183.-fbo.-27c.1hn.5ud.37r.158.-2d7.4xk.-38x.3gi.7o2.10w.ah2.-7uv.-4mu.-ak.3q1.-46c.5vf.1al.-19x.-2ty.3mr.-2tc.4nz.8ag.-as1.c6w.-4k3.-by.8g9.-2q2.4dy.rp.82y.-29l.3ob.kc.-32g.-1og.-1up.1g9.-q5.1ib.-5c1.-1oc.kr.-1pl.-3ay.21f.6tr.-1t1.228.-1d1.d1.75f.2os.4aq.4bw.20g.by7.-2wh.fl.-2ws.6m7.-8j3.my.4mq.1dy.fr.1rq.1os.6a0.32d.-bez.6fb.-qj.1yi.-2mf.-5m1.mg.cte.69r.-wj.-38l.-y.1ez.3m1.vv.-85a.2n8.1v2.wu.-7zz.5ln.zq.-6p4.-46j.7c3.54a.ki.5at.-15n.ll.-3d7.-2j4.yb.-7i6.300.4gb.-fkc.-1hc.8q.-1gl.90u.33g.-6re.7dk.-6vf.3qb.5f3.-2gs.5ly.1vg.-gm1.2fq.jtg.-jx.-2qt.2b0.381.21o.4ib.-553.l1.3bs.2km.yn.5pn.-3b9.vxr.3ws.-3nv.jk2.ugz.kf.kgq.-hly.8ai.-fc.3r2.-34x.-jop.4q1.7j8.7xb.-474.-2az.2ij.-2qu.ok.-1t4.-dz.-4ad.73i.-3pu.-3go.48f.-4nh.i3q.-8ey.zw.8ir.3f1.945.4dy.-s31.lfs.-w7.-n03.g2t.6cd.-gq.3zw.9if.hws.efo.91t.ef6.-8g8.eke.2qf.-e0l.2n.-9p2.-4qo.ci5.-k57.7mj.-51q.22x.1d8.g8c.6iq.-4oe.gfz.-7k.38e.-7as.-8ah.-5lm.3jw.2lz.cde.-fc.9nx.c8x.6ct.2cd.1d5.rm.-acl.-xy.9xb.3ul.3l9.-dfg.-ml.-4d1.896.ng2.cz1.-dpt.jcp.66g.de3.-5qc.-kgi.g.-72e.-9xi.jse.9aq.2nd.ed2.1zs.-jv.-4qc.-zh.1ad.6a.23m.-4oy.-4ur.1ci.lv.-350.-4v.-uz.-1iw.33k.-f3e.4zd.-g9c.d9i.-rs.-49p.ins.4tg.-739.gr6.-r4n.-5j6.44e.-aej.5ny.1m5.9up.309.rhl.um.-cwe.ix5.-874.-1wx.-j4t.mmv.-751.-283.jbf.6p3.-xgh.5xz.9rd.-b7q.aan.20n.-a4q.a2c.-1g9.-381.-3he.3j.57f.-8l2.-7sw.-bsl.d3x.-9tj.-a02.bbl.-lnr.-8w7.3gj.-po5.-5o7.-9kr.41x.-grf.7lj.-1ov.-34r.3xn.78o.x6.mdw.-6hy.-64w.7hi.-iss.1gp.790.14i.-1dnd.-17p1.11ve.-1g1x.1iws.4ut.340.-j53.-s8l.m9i.5vh.5xv.42d.-9k.mab.k2.-6m0.8uu.o1v.3jk.3i.4vp.-2ml.a4.1yv.-f4e.51p.7ck.-3la.-7le.c90.28s.-7n.-41m.285.-1tp.-3ca.37v.b7.-15t.-ccz.ccy.azo.-39f.4ys.296.sz.4hh.3qu.-5op.-417.3dg.462.52i.3u4.-cyk.dq6.245.-62m.-15m.7fo.d86.-2e5.4l6.3kq.-bil.-9ci.-5i.d2.9xl.1lq.6uc.95f.-323.1gi.-aii.-mb.3gb.5yf.lz.-1pm.-arc.8pm.6ol.-4c.-1jl.3mb.122.-12i.-5jf.vf.a2i.3lg.1ja.-1pr.-28y.o8.-3sn.9qb.331.1pd.-e2.21w.-tf.-6nn.-22h.7in.-29j.5ir.3u2.-6ey.1e6.lsy.3cw.4bz.-4d2.3d.2u4.-au0.azc.-gwv.-d8h.cy3.243.10v.-aux.-2fm.-52h.-7iw.-46t.6ju.-ed5.ny8.5q7.9r9.-44c.31u.-443.-r8.37l.-4p.-d.-5hh.7n4.-6mr.xl.-eii.-7e.-73b.-6zd.d0g.1rt.7ms.2y.-146.-26q.62s.-1zr.-6m9.5oh.1co.8ks.-592.40e.3qa.-4ca.-di9.7ez.-ajd.-dh1.-3tj.9g.2z2.-18q.-vr.409.-cek.-b62.8ls.k3p.-bde.-db1.-4z2.kln.-4jw.-29d.-4mq.-aad.-nh.-5s7.b8.6xw.h6.58q.-f9c.dcu.3y5.-5j2.-ve.345.-bnr.yh8.-c4y.8jl.-2fz.-cx8.-ln.-2s0.7r7.-5ng.-964.-222.-au7.fsa.-98j.xs.-a1x.-8bh.acx.-8qr.k99.-1wy.-k6h.qab.y0.-2ex.ha6.5qw.6nq.clt.-mz.5uc.7nv.-17q.-4iy.acc.1bn.53j.7sa.6hf.ux.-7p6.5o0.h5q.-evs.269.58s.-3qf.gra.5mn.1bd.75h.gb.-45w.-2y5.-7w8.-gtw.-2b8.-ev7.10mw.-2ve.221.-1sm.-53.-2kt.aen.-dhn.1r0.d1i.8ga.-8s6.x1.1xc.-56x.bwq.27h.-6ii.-10t.3jh.-bqv.23j.1s0.-b3c.-3lu.5et.-98p.-3l8.q3m.d95.50m.-6k5.28r.-5sa.-182.43d"}]};
+</script>
+<script>
+/* ===== visor.js ===== */
+/*
+ * Visor — el motor del dinero de verdad.
+ *
+ * OJO: esto NO es el simulador. StocKids corre 12x y vive de historia vieja para que el niño
+ * alcance a ver una década. Aquí el dinero es real y el tiempo corre 1 a 1: un día es un día,
+ * una semana es una semana. Por eso este archivo NO usa `tiempo.js` ni tiene ancla ni ritmo:
+ * la fecha de hoy sale del calendario, como en cualquier otra parte de la vida.
+ *
+ * Se mantiene la disciplina de MasMoney y de StocKids: NO SE GUARDA NINGÚN SALDO. Se guarda
+ * la lista de movimientos —lo único que de verdad pasó— y todo lo demás se deriva. Un saldo
+ * guardado es un saldo que un día se desincroniza y nadie sabe cuál de los dos es el bueno.
+ */
+
+const Visor = (() => {
+  'use strict';
+
+  const MS_DIA = 24 * 60 * 60 * 1000;
+
+  /* --- decodificar lo horneado ------------------------------------------- */
+
+  /* "1a.-3.5" -> [46, 43, 48]. Mismo formato que motor/datos.js. */
+  function descomprimir(texto, salida) {
+    let valor = 0, i = 0, inicio = 0;
+    const n = texto.length;
+    for (let p = 0; p <= n; p++) {
+      if (p !== n && texto[p] !== '.') continue;
+      valor += parseInt(texto.slice(inicio, p), 36);
+      salida[i++] = valor;
+      inicio = p + 1;
+    }
+    return salida;
+  }
+
+  const cuantos = (texto) => {
+    if (!texto) return 0;
+    let n = 1;
+    for (let i = 0; i < texto.length; i++) if (texto[i] === '.') n++;
+    return n;
+  };
+
+  const aMs = (iso) => {
+    const [a, m, d] = iso.split('-').map(Number);
+    return Date.UTC(a, m - 1, d);
+  };
+
+  const aISO = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+  function preparar(crudo) {
+    const instrumentos = crudo.instrumentos.map(inst => {
+      const n = cuantos(inst.dias);
+      const dias = descomprimir(inst.dias, new Int32Array(n));
+      const usd = descomprimir(inst.usd, new Int32Array(n));   // centavos de dólar
+      const mxn = descomprimir(inst.mxn, new Int32Array(n));   // centavos de peso
+      const baseMs = aMs(inst.base);
+
+      const listo = {
+        ...inst, n, dias, usd, mxn, baseMs,
+        fechaMs: (i) => baseMs + dias[i] * MS_DIA,
+        fecha: (i) => aISO(baseMs + dias[i] * MS_DIA),
+        precioUSD: (i) => usd[i] / 100,
+        precioMXN: (i) => mxn[i] / 100,
+
+        /*
+         * El índice del último día CON PRECIO en o antes de `iso`. Los precios solo existen
+         * en días hábiles: si preguntan por un domingo hay que contestar con el viernes, no
+         * con un hueco. Devuelve -1 si la fecha es anterior a que el fondo existiera.
+         */
+        indiceDe(iso) {
+          const objetivo = Math.round((aMs(iso) - baseMs) / MS_DIA);
+          if (objetivo < dias[0]) return -1;
+          let bajo = 0, alto = n - 1, mejor = -1;
+          while (bajo <= alto) {
+            const medio = (bajo + alto) >> 1;
+            if (dias[medio] <= objetivo) { mejor = medio; bajo = medio + 1; }
+            else alto = medio - 1;
+          }
+          return mejor;
+        },
+      };
+      return listo;
+    });
+
+    return {
+      generado: crudo.generado,
+      fxUltimo: crudo.fxUltimo,
+      fxFecha: crudo.fxFecha,
+      instrumentos,
+      de: (clave) => instrumentos.find(i => i.clave === clave) || instrumentos[0],
+    };
+  }
+
+  /* --- el estado ---------------------------------------------------------- */
+
+  const nuevo = (nombre, instrumento) => ({ nombre, instrumento, movimientos: [] });
+
+  const TIPOS = { dep: 'Depósito', ret: 'Retiro', compra: 'Compra', venta: 'Venta' };
+
+  /*
+   * Los movimientos se ordenan por fecha SIEMPRE, porque se pueden capturar tarde: Marco
+   * puede acordarse el martes de una compra del viernes. Si el orden dependiera de cuándo se
+   * tecleó, la gráfica saldría con escalones al revés.
+   *
+   * El desempate es el orden en que se capturaron: dos cosas el mismo día se quedan como
+   * las metió. Por eso el `sort` va sobre pares [movimiento, posición] y no sobre el arreglo
+   * pelón — `Array.sort` promete ser estable, pero decirlo aquí es más barato que confiar.
+   */
+  function enOrden(movimientos) {
+    return movimientos
+      .map((m, i) => [m, i])
+      .sort((a, b) => (a[0].f < b[0].f ? -1 : a[0].f > b[0].f ? 1 : a[1] - b[1]))
+      .map(([m]) => m);
+  }
+
+  /* --- validar ------------------------------------------------------------ */
+
+  /*
+   * Devuelve un texto con el problema, o null si el movimiento se puede meter. Se valida
+   * contra la foto de ESE día, no contra la de hoy: vender el martes lo que se compró el
+   * jueves es un error aunque hoy sí las tenga.
+   */
+  function revisar(estado, inst, mov) {
+    if (!mov || !TIPOS[mov.t]) return 'Tipo de movimiento desconocido.';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(mov.f || '')) return 'Falta la fecha.';
+
+    if (inst && inst.indiceDe(mov.f) < 0)
+      return `Ese día todavía no existía ${inst.clave}. El primero fue el ${inst.fecha(0)}.`;
+
+    const antes = calcular(estado, inst, mov.f);
+
+    if (mov.t === 'dep' || mov.t === 'ret') {
+      if (!(mov.monto > 0)) return 'El monto tiene que ser mayor que cero.';
+      if (mov.t === 'ret' && mov.monto > antes.efectivo + 0.005)
+        return `Ese día solo había ${dinero(antes.efectivo)} sin invertir.`;
+      return null;
+    }
+
+    if (!(mov.titulos > 0)) return 'Los títulos tienen que ser más que cero.';
+    if (!(mov.precio > 0)) return 'El precio tiene que ser mayor que cero.';
+
+    // En el SIC se compran TÍTULOS COMPLETOS, no fracciones. Es la razón por la que el
+    // precio por título importa tanto al escoger el ETF: con SPYL N a ~$340 cada aportación
+    // compra algo; con CSPX N a ~$14,280 el dinero se quedaría parado meses.
+    if (Math.abs(mov.titulos - Math.round(mov.titulos)) > 1e-9)
+      return 'En el SIC se compran títulos completos, no fracciones.';
+
+    if (mov.t === 'compra') {
+      const cuesta = mov.titulos * mov.precio;
+      if (cuesta > antes.efectivo + 0.005)
+        return `Cuesta ${dinero(cuesta)} y ese día solo había ${dinero(antes.efectivo)}.`;
+      return null;
+    }
+
+    if (mov.titulos > antes.titulos + 1e-9)
+      return `Ese día solo tenía ${antes.titulos} ${antes.titulos === 1 ? 'título' : 'títulos'}.`;
+    return null;
+  }
+
+  function agregar(estado, inst, mov) {
+    const error = revisar(estado, inst, mov);
+    if (error) return { ok: false, error, estado };
+    return {
+      ok: true,
+      error: null,
+      estado: { ...estado, movimientos: enOrden([...estado.movimientos, mov]) },
+    };
+  }
+
+  function quitar(estado, posicion) {
+    const movimientos = estado.movimientos.filter((_, i) => i !== posicion);
+    return { ...estado, movimientos };
+  }
+
+  /* --- derivar ------------------------------------------------------------ */
+
+  /*
+   * La foto de la cartera al cierre de `iso`. TODO sale de aquí; no hay ningún saldo guardado
+   * en ninguna parte.
+   *
+   * `precioHoy` permite pasar un precio de fuera —el que sale de multiplicar el dólar en vivo
+   * por el tipo de cambio del día— para que el valor no se quede clavado en el último precio
+   * horneado. Si no se pasa, se usa el horneado.
+   */
+  function calcular(estado, inst, iso, precioHoy) {
+    let depositado = 0, retirado = 0, efectivo = 0, titulos = 0, costo = 0;
+    let comprado = 0, vendido = 0;
+
+    for (const m of enOrden(estado.movimientos)) {
+      if (m.f > iso) break;
+      if (m.t === 'dep') { depositado += m.monto; efectivo += m.monto; }
+      else if (m.t === 'ret') { retirado += m.monto; efectivo -= m.monto; }
+      else if (m.t === 'compra') {
+        const cuesta = m.titulos * m.precio;
+        efectivo -= cuesta; titulos += m.titulos; costo += cuesta; comprado += cuesta;
+      } else if (m.t === 'venta') {
+        const entra = m.titulos * m.precio;
+        // El costo se baja EN PROPORCIÓN a lo vendido (costo promedio). Si se restara lo que
+        // costaron aquellas en particular habría que llevar lotes, y para un niño que compra
+        // una vez al mes eso es complejidad sin lección.
+        const parte = titulos > 0 ? m.titulos / titulos : 0;
+        costo -= costo * parte;
+        efectivo += entra; titulos -= m.titulos; vendido += entra;
+      }
+    }
+
+    const i = inst ? inst.indiceDe(iso) : -1;
+    const precio = precioHoy != null ? precioHoy : (i >= 0 ? inst.precioMXN(i) : 0);
+    const valor = titulos * precio;
+    const total = valor + efectivo;
+    const metido = depositado - retirado;
+
+    return {
+      fecha: iso,
+      indice: i,
+      precio,
+      titulos,
+      valor,
+      efectivo,
+      total,
+      depositado,
+      retirado,
+      metido,
+      costo,
+      // Lo que pagó en promedio por cada título que TODAVÍA tiene.
+      promedio: titulos > 0 ? costo / titulos : 0,
+      comprado,
+      vendido,
+      // Contra lo METIDO, nunca contra el primer depósito: si no, meter dinero se vería como
+      // ganancia y sería mentira. Misma regla que en StocKids.
+      ganancia: total - metido,
+      gananciaPct: metido > 0 ? ((total - metido) / metido) * 100 : 0,
+    };
+  }
+
+  /* La serie del valor total, un punto por cada índice pedido. Para la gráfica. */
+  const serieValor = (estado, inst, indices, precioHoy, hasta) =>
+    indices.map(i => {
+      const iso = inst.fecha(i);
+      const usar = (hasta != null && i >= hasta) ? precioHoy : undefined;
+      return calcular(estado, inst, iso, usar).total;
+    });
+
+  /* La serie de lo que metió. Es la línea que contesta "¿voy ganando?" sin hacer cuentas. */
+  const serieMetido = (estado, inst, indices) =>
+    indices.map(i => calcular(estado, inst, inst.fecha(i)).metido);
+
+  /* --- presentar ---------------------------------------------------------- */
+
+  const dinero = (n) => {
+    const signo = n < 0 ? '-' : '';
+    return signo + '$' + Math.abs(n).toLocaleString('es-MX',
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
+                 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+  const comoTexto = (iso) => {
+    const [a, m, d] = iso.split('-').map(Number);
+    return `${d} de ${MESES[m - 1]} de ${a}`;
+  };
+
+  /*
+   * Hoy en la zona del aparato, NO en UTC. `toISOString()` en México devuelve el día de
+   * mañana después de las 6 de la tarde, y una compra capturada en la noche saldría con
+   * fecha equivocada.
+   */
+  function hoyISO(ahora = new Date()) {
+    const y = ahora.getFullYear();
+    const m = String(ahora.getMonth() + 1).padStart(2, '0');
+    const d = String(ahora.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  return {
+    MS_DIA, TIPOS,
+    preparar, nuevo, enOrden, revisar, agregar, quitar,
+    calcular, serieValor, serieMetido,
+    dinero, comoTexto, hoyISO, aMs, aISO,
+  };
+})();
+
+if (typeof module !== 'undefined') module.exports = Visor;
+
+</script>
+<script>
+/* ===== grafica.js ===== */
+/*
+ * StocKids — la gráfica.
+ *
+ * Dibuja la historia VIVIDA. Nunca el futuro: aunque los precios de los próximos años estén
+ * horneados en el archivo, `dibujar` tira todo índice mayor que `hasta` y no hay forma de
+ * pedirle más. La regla vive aquí adentro, no en el que llama.
+ *
+ * ⚠️ NADA DE MEDIR PÍXELES. Todo se dibuja en el sistema de coordenadas del `viewBox` y el
+ * SVG se estira solo con `width:100%`. Así se esquiva de raíz la trampa #2 de MasMoney
+ * (`zoom` rompe las unidades). Para el dedo, la conversión de pantalla a coordenadas se hace
+ * con `getScreenCTM().inverse()`, que respeta cualquier escala.
+ *
+ * ⚠️ EL CSS TIENE QUE RESPETAR LA PROPORCIÓN:
+ *
+ *     svg { width: 100%; aspect-ratio: 320 / 180; }     <- ANCHO / ALTO
+ *
+ * Con `preserveAspectRatio="none"` y una altura fija en píxeles, X y Y se escalan distinto y
+ * **la tipografía sale estirada**. Pasó el 15-ago-2026: 458×200 daba escala 1.43 contra 1.11,
+ * o sea letras 29% más anchas. Hay una prueba que lo caza.
+ */
+
+const Grafica = (() => {
+  'use strict';
+
+  const ANCHO = 320, ALTO = 180;
+  const LETRA = 8;    // en unidades del viewBox; a 480 px de ancho salen ~12 px reales
+  const M = { arriba: 14, derecha: 8, abajo: 18, izquierda: 34 };
+  const X0 = M.izquierda, X1 = ANCHO - M.derecha;
+  const Y0 = M.arriba, Y1 = ALTO - M.abajo;
+
+  const SVG = 'http://www.w3.org/2000/svg';
+  const crear = (tag, attrs = {}) => {
+    const n = document.createElementNS(SVG, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  };
+
+  /* --- las tres vistas: diaria, semanal y mensual ------------------------- */
+
+  /*
+   * Las pidió Marco el 15-ago-2026, y no son solo un zoom: cambian el TAMAÑO del paso y la
+   * VENTANA a la vez, igual que en una app de bolsa de verdad.
+   *
+   *   día     un punto por día hábil, últimos ~3 meses. Se ve el zangoloteo.
+   *   semana  un punto por semana, últimos ~2 años. Se ve la tendencia.
+   *   mes     un punto por mes, TODA la historia que haya. Se ven las crisis enteras.
+   *
+   * `paso` va en días hábiles (5 = una semana, 21 ≈ un mes). Trabajar en días hábiles y no
+   * en el calendario evita huecos raros por fines de semana y feriados.
+   */
+  /*
+   * ⚠️ LAS VENTANAS ESTÁN CALIBRADAS PARA VELAS, no para líneas. Una línea aguanta 200
+   * puntos; una vela con 200 en pantalla queda de un píxel y no se lee. El tope cómodo son
+   * ~45-75 velas: a 480 px de ancho eso da cuerpos de 4 a 7 px.
+   *
+   * "Todo" va por trimestres justo por eso: 18.6 años en velas mensuales serían 223 velas
+   * de un pelo, y en trimestrales son 74 que sí se ven.
+   */
+  const VISTAS = {
+    dia:    { etiqueta: 'Día',    paso: 1,  ventana: 44 },     // ~2 meses
+    semana: { etiqueta: 'Semana', paso: 5,  ventana: 260 },    // ~1 año
+    mes:    { etiqueta: 'Mes',    paso: 21, ventana: 1260 },   // ~5 años
+    todo:   { etiqueta: 'Todo',   paso: 63, ventana: Infinity },  // trimestres
+  };
+
+  /*
+   * Los índices a dibujar. Se cuenta HACIA ATRÁS desde el último día para que el punto de
+   * hoy caiga siempre exacto: contando hacia adelante, el precio de hoy podría quedar entre
+   * dos puntos y la línea terminaría en un valor viejo.
+   */
+  function muestreo(primero, ultimo, vista) {
+    const v = VISTAS[vista] || VISTAS.dia;
+    const arranca = v.ventana === Infinity
+      ? primero : Math.max(primero, ultimo - v.ventana + 1);
+    const indices = [];
+    for (let i = ultimo; i >= arranca; i -= v.paso) indices.push(i);
+    if (indices[indices.length - 1] !== arranca) indices.push(arranca);
+    return indices.reverse();
+  }
+
+  const vistasDisponibles = () =>
+    Object.entries(VISTAS).map(([clave, v]) => ({ clave, etiqueta: v.etiqueta }));
+
+  /*
+   * Los índices de una ventana cualquiera, con el paso ajustado solo para que no se
+   * amontonen. Es lo que usa el arrastre y el pellizco: la ventana es libre, y aquí se
+   * decide si cada vela vale un día, una semana o un trimestre.
+   */
+  const MAX_VELAS = 70;
+  function muestreoVentana(desde, hasta, maxVelas = MAX_VELAS) {
+    const ancho = Math.max(1, hasta - desde + 1);
+    const paso = Math.max(1, Math.ceil(ancho / maxVelas));
+    const indices = [];
+    for (let i = hasta; i >= desde; i -= paso) indices.push(i);
+    if (indices[indices.length - 1] !== desde) indices.push(desde);
+    return indices.reverse();
+  }
+
+  /* La ventana que le toca a cada chip, para poder volver a ella tras haber arrastrado. */
+  function ventanaDe(vista, primero, ultimo) {
+    const v = VISTAS[vista] || VISTAS.dia;
+    const ancho = v.ventana === Infinity ? ultimo - primero + 1 : v.ventana;
+    return { desde: Math.max(primero, ultimo - ancho + 1), hasta: ultimo };
+  }
+
+  /* --- escalas ------------------------------------------------------------ */
+
+  /* Redondea hacia arriba a 1, 2, 2.5 o 5 por potencia de diez: los números que una persona
+     lee de un vistazo. */
+  function pasoBonito(bruto) {
+    const potencia = Math.pow(10, Math.floor(Math.log10(bruto)));
+    const n = bruto / potencia;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * potencia;
+  }
+
+  function escalaY(min, max, rayas = 4) {
+    if (max - min < 1e-9) { min -= 1; max += 1; }
+    const paso = pasoBonito((max - min) / rayas);
+    const piso = Math.floor(min / paso) * paso;
+    const techo = Math.ceil(max / paso) * paso;
+    const marcas = [];
+    for (let v = piso; v <= techo + paso / 2; v += paso) marcas.push(v);
+    return { piso, techo, marcas };
+  }
+
+  /*
+   * Dinero corto, para que quepa en el eje: $1.2k, $470k, $0.48.
+   *
+   * ⚠️ Los centavos IMPORTAN. NVIDIA en 2009 cuesta $0.48 porque se partió 40 veces, y
+   * redondeando a enteros el eje entero decía "$1 $1 $1 $0 $0 $0" — seis etiquetas y ningún
+   * dato. Lo cachó Marco el 16-ago-2026 con una captura.
+   */
+  function corto(n, decimales) {
+    const a = Math.abs(n);
+    if (a >= 1e6) return `$${(n / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M`;
+    if (a >= 1000) return `$${(n / 1000).toFixed(a >= 10000 ? 0 : 1)}k`;
+    // Todo el eje lleva los MISMOS decimales, que se deciden por el salto entre rayas y no
+    // por cada número: "$1.0" junto a "$0.20" se ve descuidado.
+    if (decimales != null) return `$${n.toFixed(decimales)}`;
+    if (a >= 10 || a === 0) return `$${Math.round(n)}`;
+    return `$${n.toFixed(a >= 1 ? 1 : 2)}`;
+  }
+
+  /* Cuántos decimales pide un eje cuyas rayas van de `paso` en `paso`. */
+  const decimalesDe = (paso) => paso >= 10 ? 0 : paso >= 1 ? 1 : paso >= 0.1 ? 2 : 3;
+
+  const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
+    'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+  /* --- dibujar ------------------------------------------------------------ */
+
+  /*
+   *  contenedor  el <svg> donde va
+   *  indices     qué días dibujar (de `muestreo`)
+   *  hasta       el último día VIVIDO. Aquí muere el futuro, pase lo que pase.
+   *  fecha       (i) -> 'YYYY-MM-DD'
+   *  series      [{nombre, valor:(i)=>number, clase, punteada}]
+   *
+   * Devuelve un objeto con `marcar(pos)` para el dedo.
+   */
+  function dibujar(contenedor, { indices, hasta, ventana, fecha, series }) {
+    // Aquí muere el futuro: nadie de aquí para abajo ve un dato de después de `hasta`.
+    const vistos = indices.filter(i => i <= hasta);
+    if (!vistos.length) vistos.push(hasta);
+    const fin = vistos.length - 1;
+
+    /*
+     * ⚠️ El eje horizontal va por la VENTANA, no por los puntos dibujados. Si la ventana se
+     * pasa del día de hoy, ese pedazo se queda VACÍO en vez de estirar las velas para llenar
+     * el ancho. Es lo que pidió Marco el 16-ago-2026 señalando el "espacio sin precio" de
+     * TradingView: poder correr la gráfica y dejar aire a la derecha.
+     *
+     * Y sigue sin enseñar el futuro: en ese hueco no se dibuja nada porque no hay nada.
+     */
+    const v0 = ventana ? Math.min(ventana.desde, vistos[0]) : vistos[0];
+    const v1 = ventana ? Math.max(ventana.hasta, vistos[fin]) : vistos[fin];
+
+    contenedor.setAttribute('viewBox', `0 0 ${ANCHO} ${ALTO}`);
+    contenedor.setAttribute('preserveAspectRatio', 'none');
+    contenedor.replaceChildren();
+
+    const valores = series.map(s => vistos.map(s.valor));
+    let min = Infinity, max = -Infinity;
+    for (const fila of valores) for (const v of fila) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    // La escala tiene que dar cabida a las MECHAS, no solo a los cierres: si no, la vela del
+    // día más movido sale cortada por arriba.
+    for (const s of series) {
+      if (!s.velas) continue;
+      for (let i = 0; i <= fin; i++) {
+        const v = s.velas(vistos[i], i === 0 ? vistos[i] : vistos[i - 1] + 1);
+        if (!v) continue;
+        if (v.bajo < min) min = v.bajo;
+        if (v.alto > max) max = v.alto;
+      }
+    }
+    const { piso, techo, marcas } = escalaY(min, max);
+
+    // `x` recibe un DÍA, no una posición del arreglo.
+    const x = d => v1 === v0 ? X0 : X0 + ((d - v0) / (v1 - v0)) * (X1 - X0);
+    const y = v => Y1 - ((v - piso) / (techo - piso)) * (Y1 - Y0);
+
+    /* rayas horizontales con su cifra */
+    const decs = marcas.length > 1 ? decimalesDe(marcas[1] - marcas[0]) : null;
+    for (const v of marcas) {
+      const py = y(v);
+      contenedor.append(
+        crear('line', { class: 'raya', x1: X0, x2: X1, y1: py, y2: py }),
+        // El tamaño va como atributo, no solo en CSS: el módulo tiene que verse bien aunque
+        // quien lo use se olvide de darle estilo. El CSS puede sobreescribirlo.
+        Object.assign(crear('text', {
+          class: 'ejeDinero', x: X0 - 4, y: py + 3,
+          'font-size': LETRA, 'text-anchor': 'end',
+        }), { textContent: corto(v, decs) }));
+    }
+
+    /* Marcas de tiempo abajo. Si el tramo abarca más de dos años se rotula por año; si no,
+       por mes: en la vista de día, doce "2026" seguidos no dicen nada. */
+    const primera = fecha(vistos[0]), ultima = fecha(vistos[fin]);
+    const porAnio = (+ultima.slice(0, 4) - +primera.slice(0, 4)) >= 2;
+    let previo = null;
+    for (let i = 0; i <= fin; i++) {
+      const f = fecha(vistos[i]);
+      const clave = porAnio ? f.slice(0, 4) : f.slice(0, 7);
+      if (clave === previo) continue;
+      previo = clave;
+      if (i === 0 && fin > 8) continue;              // el primero se encima con el eje
+      const texto = porAnio ? clave : MESES[+f.slice(5, 7) - 1];
+      const px = x(vistos[i]);
+      contenedor.append(
+        crear('line', { class: 'raya tenue', x1: px, x2: px, y1: Y0, y2: Y1 }),
+        Object.assign(crear('text', {
+          class: 'ejeTiempo', x: px, y: ALTO - 5,
+          'font-size': LETRA, 'text-anchor': 'middle',
+        }), { textContent: texto }));
+    }
+
+    /*
+     * Velas. Cada una es un tramo: del punto anterior hasta este. El cuerpo va de la
+     * apertura al cierre y la mecha del mínimo al máximo. Verde si cerró arriba de donde
+     * abrió, rojo si abajo — que es como se leen en cualquier app de bolsa.
+     */
+    const velas = series.find(s => s.velas);
+    if (velas) {
+      // El ancho sale del hueco entre dos velas EN DÍAS, no de repartir la pantalla: con
+      // espacio vacío a la derecha, repartir daría velas más anchas de la cuenta.
+      const saltoDias = fin > 0 ? (vistos[fin] - vistos[0]) / fin : 1;
+      const paso = (X1 - X0) * saltoDias / Math.max(1, v1 - v0);
+      const ancho = Math.max(1.2, Math.min(paso * 0.62, 9));
+      for (let i = 0; i <= fin; i++) {
+        const v = velas.velas(vistos[i], i === 0 ? vistos[i] : vistos[i - 1] + 1);
+        if (!v) continue;
+        const sube = v.c >= v.a;
+        const cx = x(vistos[i]);
+        const yA = y(v.a), yC = y(v.c);
+        contenedor.append(crear('line', {
+          class: `mecha ${sube ? 'sube' : 'baja'}`,
+          x1: cx, x2: cx, y1: y(v.alto), y2: y(v.bajo),
+          'vector-effect': 'non-scaling-stroke',
+        }));
+        contenedor.append(crear('rect', {
+          class: `cuerpo ${sube ? 'sube' : 'baja'}`,
+          x: cx - ancho / 2, width: ancho,
+          // Un cuerpo de altura cero desaparece: se le deja el mínimo para que se vea la raya
+          // del día en que abrió y cerró igual.
+          y: Math.min(yA, yC), height: Math.max(Math.abs(yA - yC), 0.6),
+        }));
+      }
+    }
+
+    /* las líneas, y un punto gordo al final de cada una */
+    series.forEach((s, k) => {
+      if (s.velas) return;                     // esa ya se dibujó como velas
+      const d = valores[k].map((v, i) =>
+        `${i ? 'L' : 'M'}${x(vistos[i]).toFixed(2)} ${y(v).toFixed(2)}`).join('');
+      contenedor.append(crear('path', {
+        class: `linea ${s.clase}`, d, 'vector-effect': 'non-scaling-stroke',
+        ...(s.punteada ? { 'stroke-dasharray': '3 3' } : {}),
+      }));
+      contenedor.append(crear('circle', {
+        class: `punta ${s.clase}`, cx: x(vistos[fin]), cy: y(valores[k][fin]), r: 2.5,
+      }));
+    });
+
+    /* la línea del dedo, escondida hasta que la toquen */
+    const guia = crear('line', { class: 'guia', y1: Y0, y2: Y1, visibility: 'hidden' });
+    contenedor.append(guia);
+
+    return {
+      fin,
+      dias: vistos,
+      // De píxel a posición del arreglo, pasando por el DÍA: con hueco a la derecha las dos
+      // cosas ya no son lo mismo.
+      posEn(px) {
+        const dia = v0 + ((px - X0) / (X1 - X0)) * (v1 - v0);
+        let mejor = 0, cerca = Infinity;
+        for (let i = 0; i <= fin; i++) {
+          const d = Math.abs(vistos[i] - dia);
+          if (d < cerca) { cerca = d; mejor = i; }
+        }
+        return mejor;
+      },
+      marcar(pos) {
+        if (pos == null) { guia.setAttribute('visibility', 'hidden'); return null; }
+        const p = Math.max(0, Math.min(pos, fin));
+        guia.setAttribute('x1', x(vistos[p]));
+        guia.setAttribute('x2', x(vistos[p]));
+        guia.setAttribute('visibility', 'visible');
+        return { dia: vistos[p], fecha: fecha(vistos[p]), valores: valores.map(v => v[p]) };
+      },
+    };
+  }
+
+  /*
+   * Los gestos, como en TradingView (Marco mandó el video el 15-ago-2026):
+   *
+   *   arrastrar con un dedo   mueve la gráfica en el tiempo
+   *   pellizcar con dos       acerca y aleja
+   *   dejar el dedo quieto    saca la cruz para leer un día  (350 ms)
+   *
+   * Un solo `pointerdown` no sabe todavía si va a ser un arrastre o una lectura, así que se
+   * espera: si en 350 ms el dedo no se movió, es lectura; si se movió antes, es arrastre.
+   * Sin esa espera, cada intento de leer un precio movería la gráfica.
+   *
+   * ⚠️ Se convierte con `getScreenCTM().inverse()` en vez de restar `getBoundingClientRect()`:
+   * así funciona con cualquier escala y no repite la trampa #2 de MasMoney.
+   */
+  const ESPERA_LECTURA = 350;      // ms quieto antes de que salga la cruz
+  const MINIMO_VENTANA = 15;       // días: más cerca que esto ya no dice nada
+
+  /*
+   * ⚠️ `redibujar(ventana)` tiene que volver a dibujar SOBRE EL MISMO <svg> y devolver el
+   * nuevo `pintado`. Si el que llama repinta la pantalla entera, el elemento que el dedo
+   * venía agarrando desaparece a media caricia y el arrastre se queda en un solo paso.
+   * Pasó el 15-ago-2026 y no se nota en una prueba de un solo movimiento.
+   */
+  function interactuar(svg, opciones) {
+    const { limites, ventana: inicial, redibujar, alLeer } = opciones;
+    let ventana = { ...inicial };
+    let pintado = opciones.pintado;
+    const alMover = (v) => {
+      if (v.desde === ventana.desde && v.hasta === ventana.hasta) return;
+      ventana = v;
+      pintado = redibujar(v) || pintado;
+    };
+    const punto = svg.createSVGPoint();
+    const enX = (ev) => {
+      punto.x = ev.clientX; punto.y = ev.clientY;
+      return punto.matrixTransform(svg.getScreenCTM().inverse()).x;
+    };
+
+    const dedos = new Map();          // pointerId -> x en coordenadas del viewBox
+    let modo = null;                  // 'espera' | 'leer' | 'mover' | 'pellizco'
+    let arranque = null, reloj = null;
+
+    const ancho = () => ventana.hasta - ventana.desde + 1;
+    /* Cuántos días vale un paso horizontal. Con la ventana chica, un dedo mueve poco. */
+    const diasPorUnidad = () => ancho() / (X1 - X0);
+
+    /*
+     * Cuánto aire se deja correr a la derecha del último precio. Marco lo pidió el
+     * 16-ago-2026 señalando el "espacio sin precio" de TradingView: poder seguir arrastrando
+     * aunque ya no haya velas. NO es asomarse al futuro — ahí no se dibuja nada, porque no
+     * hay nada. El precio de mañana sigue sin existir para la gráfica.
+     */
+    const AIRE = 0.45;                // 45% del ancho de la ventana
+
+    const mover = (desde, hasta) => {
+      const largo = hasta - desde;
+      const tope = limites.hasta + Math.round(largo * AIRE);
+      // Hacia atrás sí hay pared dura: antes del primer dato no hay nada que enseñar.
+      if (desde < limites.desde) { desde = limites.desde; hasta = desde + largo; }
+      if (hasta > tope) { hasta = tope; desde = hasta - largo; }
+      alMover({ desde: Math.max(limites.desde, Math.round(desde)), hasta: Math.round(hasta) });
+    };
+
+    const cancelarEspera = () => { clearTimeout(reloj); reloj = null; };
+
+    svg.addEventListener('pointerdown', (ev) => {
+      svg.setPointerCapture(ev.pointerId);
+      dedos.set(ev.pointerId, enX(ev));
+      if (dedos.size === 2) {
+        cancelarEspera();
+        const [a, b] = [...dedos.values()];
+        modo = 'pellizco';
+        arranque = { separacion: Math.abs(a - b) || 1, ...ventana };
+        return;
+      }
+      modo = 'espera';
+      arranque = { x: enX(ev), ...ventana };
+      reloj = setTimeout(() => {
+        modo = 'leer';
+        alLeer(pintado.marcar(pintado.posEn(arranque.x)));
+      }, ESPERA_LECTURA);
+    });
+
+    svg.addEventListener('pointermove', (ev) => {
+      if (!dedos.has(ev.pointerId)) return;
+      ev.preventDefault();
+      dedos.set(ev.pointerId, enX(ev));
+
+      if (modo === 'pellizco' && dedos.size === 2) {
+        const [a, b] = [...dedos.values()];
+        const razon = Math.max(0.15, Math.abs(a - b) / arranque.separacion);
+        const centro = (arranque.desde + arranque.hasta) / 2;
+        const medio = Math.max(MINIMO_VENTANA,
+          Math.min(limites.hasta - limites.desde + 1,
+                   (arranque.hasta - arranque.desde + 1) / razon)) / 2;
+        mover(centro - medio, centro + medio);
+        return;
+      }
+      if (dedos.size !== 1) return;
+
+      const x = enX(ev);
+      if (modo === 'espera' && Math.abs(x - arranque.x) > 3) { cancelarEspera(); modo = 'mover'; }
+      if (modo === 'leer') { alLeer(pintado.marcar(pintado.posEn(x))); return; }
+      if (modo !== 'mover') return;
+
+      // Arrastrar a la derecha va HACIA ATRÁS en el tiempo, como en cualquier gráfica.
+      const corrimiento = (arranque.x - x) * diasPorUnidad();
+      mover(arranque.desde + corrimiento, arranque.hasta + corrimiento);
+    });
+
+    const soltar = (ev) => {
+      dedos.delete(ev.pointerId);
+      cancelarEspera();
+      if (modo === 'leer') alLeer(pintado.marcar(null));
+      if (dedos.size === 0) modo = null;
+      else if (dedos.size === 1) {          // se levantó un dedo del pellizco
+        modo = 'mover';
+        arranque = { x: [...dedos.values()][0], ...ventana };
+      }
+    };
+    svg.addEventListener('pointerup', soltar);
+    svg.addEventListener('pointercancel', soltar);
+
+    /* Rueda del ratón, para poder probarlo en la computadora sin dedos. */
+    svg.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      const razon = ev.deltaY > 0 ? 1.25 : 0.8;
+      const centro = (ventana.desde + ventana.hasta) / 2;
+      const medio = Math.max(MINIMO_VENTANA,
+        Math.min(limites.hasta - limites.desde + 1, ancho() * razon)) / 2;
+      mover(centro - medio, centro + medio);
+    }, { passive: false });
+  }
+
+  /* La forma vieja, sin arrastre: solo leer. La sigue usando la gráfica de la cartera. */
+  function seguirElDedo(svg, pintado, alMover) {
+    const punto = svg.createSVGPoint();
+    const aCoordenadas = (ev) => {
+      punto.x = ev.clientX;
+      punto.y = ev.clientY;
+      return punto.matrixTransform(svg.getScreenCTM().inverse()).x;
+    };
+    const mover = (ev) => {
+      ev.preventDefault();
+      alMover(pintado.marcar(pintado.posEn(aCoordenadas(ev))));
+    };
+    const soltar = () => alMover(pintado.marcar(null));
+
+    svg.addEventListener('pointerdown', (ev) => { svg.setPointerCapture(ev.pointerId); mover(ev); });
+    svg.addEventListener('pointermove', (ev) => { if (svg.hasPointerCapture(ev.pointerId)) mover(ev); });
+    svg.addEventListener('pointerup', soltar);
+    svg.addEventListener('pointercancel', soltar);
+  }
+
+  return { ANCHO, ALTO, LETRA, MINIMO_VENTANA, MAX_VELAS,
+           dibujar, seguirElDedo, interactuar, corto, decimalesDe, escalaY, pasoBonito,
+           VISTAS, muestreo, muestreoVentana, ventanaDe, vistasDisponibles };
+})();
+
+</script>
+<script>
+'use strict';
+
+const VS_VER = '20260816-1150';    // sello, igual que el SK_VER de StocKids
+
+/* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
+   carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
+   línea y TRUENA si no la encuentra. */
+const A_STOCKIDS = './index.html';
+
+const CLAVE = 'visor.v1';
+const CLAVE_TEMA = 'visor.tema';       // aparte de la partida: borrar una no toca la otra
+const $ = (id) => document.getElementById(id);
+
+/* ===================== estado ===================== */
+
+let DATOS = null;          // lo horneado, ya decodificado
+let INST = null;           // el instrumento escogido
+let E = null;              // { nombre, instrumento, movimientos }
+let PRECIO_HOY = null;     // precio de hoy en pesos, con el dólar en vivo si se pudo
+let FX = null;             // { valor, fecha, vivo }
+let VISTA = 'mes';
+let VISTA_PRECIO = 'mes';
+let VENTANA = null, VENTANA_PRECIO = null;
+let PANTALLA = 'dinero';
+let CAPTURA = 'dep';
+
+const guardar = () => localStorage.setItem(CLAVE, JSON.stringify(E));
+const cargar = () => {
+  try {
+    const crudo = JSON.parse(localStorage.getItem(CLAVE) || 'null');
+    if (!crudo || !Array.isArray(crudo.movimientos)) return null;
+    return crudo;
+  } catch { return null; }
+};
+
+/* ===================== tema ===================== */
+
+const consulta = matchMedia('(prefers-color-scheme: light)');
+function aplicarTema() {
+  const guardado = localStorage.getItem(CLAVE_TEMA) || 'sistema';
+  const dia = guardado === 'dia' || (guardado === 'sistema' && consulta.matches);
+  document.documentElement.dataset.tema = dia ? 'dia' : 'noche';
+  const barra = document.querySelector('meta[name=theme-color]');
+  if (barra) barra.setAttribute('content', dia ? '#f4f6f9' : '#0e1116');
+}
+/* Dos caminos, como en StocKids: el evento de la media query Y otra revisada al volver a la
+   app. Si Android cambia de tema con esto en segundo plano, el evento puede no llegar nunca. */
+consulta.addEventListener('change', aplicarTema);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) aplicarTema(); });
+aplicarTema();
+
+/*
+ * ⚠️ Cambiar solo el `#` NO recarga la página, y el link compartido se lee una sola vez al
+ * arrancar. Sin esto, pegarle `#c=…` a una pestaña ya abierta no hace absolutamente nada y
+ * parece que el link viene roto. Es la misma trampa que ya se pagó en StocKids con `#fecha=`.
+ *
+ * Ojo al probarlo: el navegador tampoco recarga si se le pide navegar a la MISMA URL, así
+ * que una prueba que solo asigne `location.href` miente — se ve el estado viejo y parece que
+ * funcionó. Hay que forzar con `location.reload()`.
+ */
+addEventListener('hashchange', () => location.reload());
+
+/* ===================== el precio de hoy ===================== */
+
+/*
+ * ⚠️ Verificado el 16-ago-2026 desde el origen real de producción: Yahoo y Stooq BLOQUEAN por
+ * CORS, y api.frankfurter.dev contesta 200. O sea que el precio del ETF no se puede refrescar
+ * desde el teléfono, pero el tipo de cambio SÍ.
+ *
+ * De ahí el diseño: el precio en dólares viene horneado y aquí se multiplica por el dólar del
+ * día. Con eso el valor en pesos se mueve solo aunque el precio en dólares tenga unos días.
+ * Si no hay internet, se usa el tipo de cambio horneado y se dice de cuándo es.
+ */
+async function precioDeHoy() {
+  const u = INST.n - 1;
+  FX = { valor: DATOS.fxUltimo, fecha: DATOS.fxFecha, vivo: false };
+  try {
+    const r = await fetch('https://api.frankfurter.dev/v1/latest?base=USD&symbols=MXN',
+                          { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      if (j && j.rates && j.rates.MXN > 0)
+        FX = { valor: j.rates.MXN, fecha: j.date, vivo: true };
+    }
+  } catch { /* sin internet: se queda el horneado, que para eso está */ }
+  PRECIO_HOY = INST.precioUSD(u) * FX.valor;
+}
+
+/* ===================== pintar ===================== */
+
+const HOY = () => Visor.hoyISO();
+
+function indiceHoy() {
+  const i = INST.indiceDe(HOY());
+  return i < 0 ? 0 : i;
+}
+
+function pintar() {
+  $('quien').textContent = E.nombre;
+  const hoy = HOY();
+  const iHoy = indiceHoy();
+  const foto = Visor.calcular(E, INST, hoy, PRECIO_HOY);
+
+  $('cuando').textContent =
+    `${Visor.comoTexto(hoy)} · precio del ${Visor.comoTexto(INST.fecha(iHoy))}`;
+
+  pintarDinero(foto, iHoy);
+  pintarPrecio(iHoy);
+  $('pie').textContent = `Visor ${VS_VER}`;
+}
+
+function pintarDinero(foto, iHoy) {
+  $('granTotal').textContent = Visor.dinero(foto.total);
+
+  const hay = E.movimientos.length > 0;
+  $('cambio').classList.toggle('oculto', !hay);
+  $('tituloMovs').classList.toggle('oculto', !hay);
+
+  if (hay) {
+    const sube = foto.ganancia >= 0;
+    $('cambio').className = 'cambio ' + (sube ? 'sube' : 'baja');
+    $('cambio').innerHTML =
+      `${sube ? '▲' : '▼'} ${Visor.dinero(Math.abs(foto.ganancia))} ` +
+      `(${foto.gananciaPct >= 0 ? '+' : ''}${foto.gananciaPct.toFixed(1)}%) ` +
+      `<small>sobre los ${Visor.dinero(foto.metido)} que metió</small>`;
+  }
+
+  /* --- tarjetas --- */
+  const t = [];
+  t.push(['Títulos de ' + INST.clave, String(foto.titulos),
+          foto.titulos ? `pagó ${Visor.dinero(foto.promedio)} cada uno` : 'todavía ninguno']);
+  t.push(['Cuesta hoy', Visor.dinero(PRECIO_HOY),
+          FX.vivo ? `dólar de hoy: ${FX.valor.toFixed(2)}` : `dólar del ${FX.fecha}`]);
+  t.push(['Invertido', Visor.dinero(foto.valor), `${INST.clave} en el SIC`]);
+  t.push(['Esperando', Visor.dinero(foto.efectivo),
+          foto.efectivo >= PRECIO_HOY && PRECIO_HOY > 0
+            ? `alcanza para ${Math.floor(foto.efectivo / PRECIO_HOY)} más`
+            : 'sin invertir']);
+  $('tarjetas').innerHTML = t.map(([i, b, s]) =>
+    `<div class="tarjeta"><i>${i}</i><b>${b}</b><small>${s}</small></div>`).join('');
+
+  /* --- vacío --- */
+  $('zonaVacia').innerHTML = hay ? '' : `
+    <div class="vacio">
+      <h3>Todavía no hay nada</h3>
+      <p>Cuando deposites en GBM y compres ${INST.clave}, captúralo con
+         <b>＋ Capturar</b> y aquí va a aparecer.</p>
+      <p style="margin-top:8px">Mientras, en <b>El precio</b> se ve cómo se ha movido
+         lo que va a comprar.</p>
+    </div>`;
+
+  /* --- la gráfica --- */
+  if (!hay) {
+    $('grafica').replaceChildren();
+    $('grafica').parentElement.classList.add('oculto');
+    $('chipsVista').classList.add('oculto');
+    $('claves').classList.add('oculto');
+  } else {
+    $('grafica').parentElement.classList.remove('oculto');
+    $('chipsVista').classList.remove('oculto');
+    $('claves').classList.remove('oculto');
+    chips('chipsVista', VISTA, (v) => { VISTA = v; VENTANA = null; pintar(); });
+    $('claves').innerHTML =
+      `<div class="clave"><i class="punto" style="background:var(--verde)"></i>Su dinero</div>
+       <div class="clave"><i class="punto" style="background:var(--ambar)"></i>Lo que metió</div>`;
+    graficaDinero(iHoy);
+  }
+
+  /* --- movimientos, del más nuevo al más viejo --- */
+  const señales = {
+    dep:    ['↓', 'var(--verde)'],
+    ret:    ['↑', 'var(--rojo)'],
+    compra: ['＋', 'var(--azul)'],
+    venta:  ['−', 'var(--ambar)'],
+  };
+  const orden = Visor.enOrden(E.movimientos);
+  $('listaMovs').innerHTML = orden.slice().reverse().map((m) => {
+    const real = E.movimientos.indexOf(m);
+    const [glifo, color] = señales[m.t];
+    const cuanto = m.t === 'dep' || m.t === 'ret'
+      ? Visor.dinero(m.monto)
+      : Visor.dinero(m.titulos * m.precio);
+    const detalle = m.t === 'dep' || m.t === 'ret'
+      ? '' : `<small>${m.titulos} × ${Visor.dinero(m.precio)}</small>`;
+    return `<div class="fila">
+      <div class="señal" style="background:color-mix(in srgb, ${color} 18%, transparent);
+           color:${color}">${glifo}</div>
+      <div class="medio"><b>${Visor.TIPOS[m.t]}</b><small>${Visor.comoTexto(m.f)}</small></div>
+      <div class="cifra">${cuanto}${detalle}</div>
+      <button class="borrar" data-borrar="${real}" title="Borrar">×</button>
+    </div>`;
+  }).join('');
+}
+
+function chips(donde, activa, alPicar) {
+  const caja = $(donde);
+  caja.innerHTML = Grafica.vistasDisponibles()
+    .map(v => `<button class="chip" data-v="${v.clave}" aria-pressed="${v.clave === activa}">${v.etiqueta}</button>`)
+    .join('');
+  caja.querySelectorAll('.chip').forEach(b =>
+    b.addEventListener('click', () => alPicar(b.dataset.v)));
+}
+
+/* La gráfica del dinero: dos líneas. No hay tercera de comparación a propósito — el niño YA
+   está en el S&P 500, compararlo contra el S&P 500 no diría nada. */
+function graficaDinero(iHoy) {
+  const svg = $('grafica');
+  const primero = Math.max(0, INST.indiceDe(Visor.enOrden(E.movimientos)[0].f));
+  const limites = { desde: primero, hasta: iHoy };
+  if (!VENTANA) {
+    const v = Grafica.ventanaDe(VISTA, primero, iHoy);
+    VENTANA = { desde: Math.max(primero, v.desde), hasta: v.hasta };
+  }
+
+  const dibujo = (ventana) => {
+    const indices = Grafica.muestreoVentana(
+      Math.max(primero, ventana.desde), Math.min(iHoy, ventana.hasta));
+    return Grafica.dibujar(svg, {
+      indices, hasta: iHoy, ventana,
+      fecha: (i) => INST.fecha(i),
+      series: [
+        { nombre: 'Lo que metió', clase: 'metido',
+          valor: (i) => Visor.calcular(E, INST, INST.fecha(i)).metido },
+        { nombre: 'Su dinero', clase: 'tuya',
+          valor: (i) => Visor.calcular(E, INST, INST.fecha(i),
+                                       i >= iHoy ? PRECIO_HOY : undefined).total },
+      ],
+    });
+  };
+
+  let pintado = dibujo(VENTANA);
+  Grafica.interactuar(svg, {
+    limites, ventana: VENTANA, pintado,
+    redibujar: (v) => { VENTANA = v; return dibujo(v); },
+    alLeer: (leido) => {
+      if (!leido) {
+        const f = Visor.calcular(E, INST, HOY(), PRECIO_HOY);
+        $('granTotal').textContent = Visor.dinero(f.total);
+        $('cuando').textContent =
+          `${Visor.comoTexto(HOY())} · precio del ${Visor.comoTexto(INST.fecha(iHoy))}`;
+        return;
+      }
+      const [metido, tuyo] = leido.valores;
+      $('granTotal').textContent = Visor.dinero(tuyo);
+      $('cuando').textContent =
+        `${Visor.comoTexto(leido.fecha)} · había metido ${Visor.dinero(metido)}`;
+    },
+  });
+}
+
+/* La gráfica del precio del ETF: una línea. Es lo que se ve antes de comprar nada. */
+function pintarPrecio(iHoy) {
+  const svg = $('graficaPrecio');
+  $('precioGrande').textContent = Visor.dinero(PRECIO_HOY);
+
+  const anterior = iHoy > 0 ? INST.precioMXN(iHoy - 1) : PRECIO_HOY;
+  const dif = PRECIO_HOY - anterior;
+  const sube = dif >= 0;
+  $('precioCambio').className = 'cambio ' + (sube ? 'sube' : 'baja');
+  $('precioCambio').innerHTML = `${sube ? '▲' : '▼'} ${Visor.dinero(Math.abs(dif))} ` +
+    `(${sube ? '+' : '−'}${Math.abs(anterior ? dif / anterior * 100 : 0).toFixed(2)}%) ` +
+    `<small>contra el día anterior</small>`;
+
+  chips('chipsPrecio', VISTA_PRECIO, (v) => {
+    VISTA_PRECIO = v; VENTANA_PRECIO = null; pintarPrecio(iHoy);
+  });
+
+  const limites = { desde: 0, hasta: iHoy };
+  if (!VENTANA_PRECIO) VENTANA_PRECIO = Grafica.ventanaDe(VISTA_PRECIO, 0, iHoy);
+
+  const dibujo = (ventana) => {
+    const indices = Grafica.muestreoVentana(
+      Math.max(0, ventana.desde), Math.min(iHoy, ventana.hasta));
+    return Grafica.dibujar(svg, {
+      indices, hasta: iHoy, ventana,
+      fecha: (i) => INST.fecha(i),
+      series: [{ nombre: INST.clave, clase: 'precio',
+                 valor: (i) => (i >= iHoy ? PRECIO_HOY : INST.precioMXN(i)) }],
+    });
+  };
+
+  let pintado = dibujo(VENTANA_PRECIO);
+  Grafica.interactuar(svg, {
+    limites, ventana: VENTANA_PRECIO, pintado,
+    redibujar: (v) => { VENTANA_PRECIO = v; return dibujo(v); },
+    alLeer: (leido) => {
+      if (!leido) { $('precioGrande').textContent = Visor.dinero(PRECIO_HOY); return; }
+      $('precioGrande').textContent = Visor.dinero(leido.valores[0]);
+    },
+  });
+
+  const años = ((INST.n > 0 ? (Visor.aMs(INST.fecha(INST.n - 1)) - Visor.aMs(INST.base)) : 0)
+                / (365.25 * Visor.MS_DIA));
+  $('fichaInst').innerHTML = [
+    ['Qué es', INST.clave, INST.nombre],
+    ['Quién lo maneja', INST.gestora, `ISIN ${INST.isin}`],
+    ['Cobra al año', (INST.costo * 100).toFixed(2) + '%', 'sobre lo invertido'],
+    ['Historia', años.toFixed(1) + ' años', `desde el ${Visor.comoTexto(INST.base)}`],
+  ].map(([i, b, s]) => `<div class="tarjeta"><i>${i}</i><b>${b}</b><small>${s}</small></div>`).join('');
+
+  $('notaInst').innerHTML =
+    `Son las <b>500 empresas más grandes de Estados Unidos</b>, todas en un solo papel. ` +
+    `${INST.acumula ? 'Es <b>acumulativo</b>: lo que las empresas reparten se queda adentro y ' +
+      'compra más, sin que nadie tenga que hacer nada.' : ''} ` +
+    `Está <b>domiciliado en Irlanda</b> (la ISIN empieza con IE), que es lo que lo mantiene ` +
+    `fuera del impuesto sucesorio de Estados Unidos. ` +
+    `El precio se actualiza al publicar; el dólar, cada vez que se abre con internet.`;
+}
+
+/* ===================== captura ===================== */
+
+function abrirCaptura() {
+  CAPTURA = 'dep';
+  $('cFecha').value = HOY();
+  $('cMonto').value = ''; $('cTitulos').value = ''; $('cPrecio').value = '';
+  pintarTipos();
+  $('telonCaptura').dataset.abierto = '1';
+}
+
+function pintarTipos() {
+  $('tipos').innerHTML = Object.entries(Visor.TIPOS)
+    .map(([k, v]) => `<button data-t="${k}" aria-pressed="${k === CAPTURA}">${v}</button>`).join('');
+  $('tipos').querySelectorAll('button').forEach(b =>
+    b.addEventListener('click', () => { CAPTURA = b.dataset.t; pintarTipos(); revisarCaptura(); }));
+
+  const esMonto = CAPTURA === 'dep' || CAPTURA === 'ret';
+  $('camposMonto').classList.toggle('oculto', !esMonto);
+  $('camposTitulos').classList.toggle('oculto', esMonto);
+  $('etiquetaMonto').textContent = CAPTURA === 'dep' ? '¿Cuánto entró?' : '¿Cuánto sacó?';
+  $('subCaptura').textContent = CAPTURA === 'compra'
+    ? `Los títulos y el precio salen de la app de GBM, tal cual.`
+    : 'Lo que de verdad pasó en la cuenta de GBM.';
+  revisarCaptura();
+}
+
+function movimientoDelFormulario() {
+  const f = $('cFecha').value;
+  if (CAPTURA === 'dep' || CAPTURA === 'ret')
+    return { f, t: CAPTURA, monto: Number($('cMonto').value) };
+  return { f, t: CAPTURA, titulos: Number($('cTitulos').value), precio: Number($('cPrecio').value) };
+}
+
+/*
+ * ⚠️ Esto NO repinta la pantalla, solo el previo y el botón. Repintar mientras teclea le
+ * tumba el teclado del teléfono. Costó caro en StocKids.
+ */
+function revisarCaptura() {
+  const m = movimientoDelFormulario();
+  const vacio = (m.t === 'dep' || m.t === 'ret') ? !m.monto : (!m.titulos || !m.precio);
+  const error = vacio ? null : Visor.revisar(E, INST, m);
+
+  $('previo').className = 'previo' + (error ? ' mal' : '');
+  $('hacerCaptura').disabled = vacio || !!error;
+
+  if (vacio) { $('previo').textContent = 'Llena los datos y aquí digo cómo queda.'; return; }
+  if (error) { $('previo').textContent = error; return; }
+
+  const antes = Visor.calcular(E, INST, m.f, PRECIO_HOY);
+  const despues = Visor.calcular(Visor.agregar(E, INST, m).estado, INST, m.f, PRECIO_HOY);
+  if (m.t === 'compra') {
+    $('previo').innerHTML =
+      `Le cuesta <b>${Visor.dinero(m.titulos * m.precio)}</b>. Pasa de ` +
+      `${antes.titulos} a <b>${despues.titulos}</b> títulos y le quedan ` +
+      `<b>${Visor.dinero(despues.efectivo)}</b> sin invertir.`;
+  } else if (m.t === 'venta') {
+    $('previo').innerHTML =
+      `Recibe <b>${Visor.dinero(m.titulos * m.precio)}</b>. Le quedan ` +
+      `<b>${despues.titulos}</b> títulos.`;
+  } else {
+    $('previo').innerHTML =
+      `Queda con <b>${Visor.dinero(despues.efectivo)}</b> sin invertir` +
+      (PRECIO_HOY > 0 && despues.efectivo >= PRECIO_HOY
+        ? `, que alcanza para <b>${Math.floor(despues.efectivo / PRECIO_HOY)}</b> ` +
+          `${Math.floor(despues.efectivo / PRECIO_HOY) === 1 ? 'título' : 'títulos'}.`
+        : '.');
+  }
+}
+
+/* ===================== avisos ===================== */
+
+function decir(titulo, texto) {
+  $('dichoTitulo').textContent = titulo;
+  $('dichoTexto').textContent = texto;
+  $('telonDicho').dataset.abierto = '1';
+}
+
+/* ===================== compartir ===================== */
+
+/*
+ * Cómo llega el dinero al teléfono del niño sin servidor: los movimientos se empaquetan en el
+ * `#` de un link y se manda por WhatsApp. Marco captura en el suyo, el niño abre el link.
+ * Va en el `#` y no en `?` porque al compartir, la parte de `?` a veces se pierde.
+ */
+const aTexto = (obj) => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(obj))))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+function deTexto(txt) {
+  const b = atob(txt.replace(/-/g, '+').replace(/_/g, '/'));
+  const bytes = Uint8Array.from(b, c => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function enlaceParaCompartir() {
+  return location.origin + location.pathname + '#c=' + aTexto(E);
+}
+
+/* ===================== arranque ===================== */
+
+(async () => {
+  // Sin opciones a propósito: `armar.py` reconoce exactamente esta forma y la cambia por la
+  // constante horneada. Con un `{cache:…}` de por medio no la reconoce y el archivo armado
+  // saldría pidiendo una red que no existe.
+  DATOS = Visor.preparar(HORNEADO_VISOR);
+
+  /* ¿Vino un link compartido? */
+  let compartido = null;
+  const m = location.hash.match(/[#&]c=([A-Za-z0-9\-_]+)/);
+  if (m) {
+    try {
+      const v = deTexto(m[1]);
+      if (v && Array.isArray(v.movimientos)) compartido = v;
+    } catch { /* link roto: se ignora y se sigue como siempre */ }
+  }
+
+  E = compartido || cargar();
+  const estrenando = !E;
+  if (estrenando) E = Visor.nuevo('', DATOS.instrumentos[0].clave);
+  INST = DATOS.de(E.instrumento);
+
+  await precioDeHoy();
+
+  if (compartido) { guardar(); history.replaceState(null, '', location.pathname); }
+
+  if (estrenando) {
+    $('telonHola').dataset.abierto = '1';
+    $('hNombre').addEventListener('input', () => {
+      $('hacerHola').disabled = !$('hNombre').value.trim();
+    });
+    $('hacerHola').addEventListener('click', () => {
+      E.nombre = $('hNombre').value.trim();
+      guardar();
+      $('telonHola').dataset.abierto = '0';
+      pintar();
+    });
+  }
+
+  /* --- navegación --- */
+  document.querySelectorAll('nav button[data-pantalla]').forEach(b =>
+    b.addEventListener('click', () => {
+      PANTALLA = b.dataset.pantalla;
+      document.querySelectorAll('nav button[data-pantalla]').forEach(o =>
+        o.setAttribute('aria-pressed', o.dataset.pantalla === PANTALLA));
+      $('pantallaDinero').classList.toggle('oculto', PANTALLA !== 'dinero');
+      $('pantallaPrecio').classList.toggle('oculto', PANTALLA !== 'precio');
+      pintar();
+    }));
+
+  $('aStocKids').addEventListener('click', () => { location.href = A_STOCKIDS; });
+
+  /* --- captura --- */
+  $('botonCapturar').addEventListener('click', abrirCaptura);
+  $('cerrarCaptura').addEventListener('click', () => $('telonCaptura').dataset.abierto = '0');
+  ['cFecha', 'cMonto', 'cTitulos', 'cPrecio'].forEach(id =>
+    $(id).addEventListener('input', revisarCaptura));
+  $('hacerCaptura').addEventListener('click', () => {
+    const r = Visor.agregar(E, INST, movimientoDelFormulario());
+    if (!r.ok) { revisarCaptura(); return; }
+    E = r.estado;
+    guardar();
+    $('telonCaptura').dataset.abierto = '0';
+    VENTANA = null;
+    pintar();                                  // si cambias el estado, repinta TÚ (trampa #3)
+  });
+
+  $('listaMovs').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-borrar]');
+    if (!b) return;
+    E = Visor.quitar(E, Number(b.dataset.borrar));
+    guardar();
+    VENTANA = null;
+    pintar();
+  });
+
+  /* --- ajustes --- */
+  $('irAjustes').addEventListener('click', () => {
+    $('aNombre').value = E.nombre;
+    $('aInstrumento').innerHTML = DATOS.instrumentos
+      .map(i => `<option value="${i.clave}" ${i.clave === E.instrumento ? 'selected' : ''}>${i.clave} — ${i.nombre}</option>`)
+      .join('');
+    $('aTema').value = localStorage.getItem(CLAVE_TEMA) || 'sistema';
+    $('avisoDatos').innerHTML =
+      `Precio horneado el <b>${DATOS.generado}</b>. El dólar se refresca solo al abrir con ` +
+      `internet; el precio del ETF, solo al volver a publicar.<br><br>` +
+      `Todo vive en este teléfono. Si lo cambias, carga un respaldo.`;
+    $('telonAjustes').dataset.abierto = '1';
+  });
+  $('cerrarAjustes').addEventListener('click', () => $('telonAjustes').dataset.abierto = '0');
+
+  $('aNombre').addEventListener('change', () => {
+    const n = $('aNombre').value.trim();
+    if (n) { E.nombre = n; guardar(); pintar(); }
+  });
+  $('aInstrumento').addEventListener('change', () => {
+    E.instrumento = $('aInstrumento').value;
+    INST = DATOS.de(E.instrumento);
+    guardar();
+    VENTANA = VENTANA_PRECIO = null;
+    precioDeHoy().then(pintar);
+  });
+  $('aTema').addEventListener('change', () => {
+    localStorage.setItem(CLAVE_TEMA, $('aTema').value);
+    aplicarTema();
+  });
+
+  $('compartir').addEventListener('click', async () => {
+    const url = enlaceParaCompartir();
+    const texto = `El dinero de ${E.nombre}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: texto, url }); return; } catch { /* canceló */ }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      decir('Link copiado', 'Pégaselo por WhatsApp. Al abrirlo, su teléfono se queda con todo.');
+    } catch {
+      decir('Copia esto', url);
+    }
+  });
+
+  $('respaldar').addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(E, null, 2)],
+                                          { type: 'application/json' }));
+    a.download = `mi-dinero-${HOY()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  $('restaurar').addEventListener('click', () => $('archivo').click());
+  $('archivo').addEventListener('change', async () => {
+    const f = $('archivo').files[0];
+    if (!f) return;
+    try {
+      const v = JSON.parse(await f.text());
+      if (!v || !Array.isArray(v.movimientos)) throw new Error('no trae movimientos');
+      E = { nombre: v.nombre || E.nombre, instrumento: v.instrumento || E.instrumento,
+            movimientos: Visor.enOrden(v.movimientos) };
+      INST = DATOS.de(E.instrumento);
+      guardar();
+      VENTANA = VENTANA_PRECIO = null;
+      $('telonAjustes').dataset.abierto = '0';
+      await precioDeHoy();
+      pintar();
+      decir('Listo', `Se cargaron ${E.movimientos.length} movimientos.`);
+    } catch (e) {
+      decir('No pude', 'Ese archivo no es un respaldo de aquí.');
+    }
+    $('archivo').value = '';
+  });
+
+  $('cerrarDicho').addEventListener('click', () => $('telonDicho').dataset.abierto = '0');
+  document.querySelectorAll('.telon').forEach(t =>
+    t.addEventListener('click', (ev) => { if (ev.target === t) t.dataset.abierto = '0'; }));
+
+  pintar();
+
+  /* El dólar se vuelve a pedir al volver a la app: puede haber pasado un día. */
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) precioDeHoy().then(pintar);
+  });
+
+  window.listo = true;      // para las pruebas automáticas
+})();
+</script>
+
+<script>
+/* El service worker la vuelve instalable y la deja abrir sin internet.
+   `updateViaCache:'none'` obliga a revalidar sw.js: si no, GitHub Pages lo deja cacheado
+   10 minutos y la versión nueva tarda en llegar. Se busca actualización al abrir y cada vez
+   que vuelve a la app; cuando el service worker nuevo toma el control, se recarga UNA vez.
+   Lo de recargar importa aquí más que en MasMoney: el mundo avanza con el reloj, así que
+   volver a la app siempre tiene que traer la foto de hoy. */
+if ('serviceWorker' in navigator) {
+  var _recargando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (_recargando) return;
+    _recargando = true;
+    location.reload();
+  });
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
+      reg.update();
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) reg.update();
+      });
+    }).catch(function (e) { console.warn('sw:', e); });
+  });
+}
+</script>
+</html>

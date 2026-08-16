@@ -1,5 +1,6 @@
-const V = 'stockids-20260816-1021';
-const ARCHIVOS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
+const V = 'stockids-20260816-1150';
+const ARCHIVOS = ['./', './index.html', './visor.html', './manifest.webmanifest',
+                  './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(ARCHIVOS)).then(() => self.skipWaiting()));
