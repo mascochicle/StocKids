@@ -185,6 +185,11 @@
   .fila .tick { font-weight:750; font-size:16px; letter-spacing:.2px }
   .fila .quien .nombre_chico { color:var(--suave); font-size:12.5px; margin-top:1px;
      white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  /* El sector, con la MISMA bolita de color que su rebanada en la rueda. Así el niño ata
+     "Apple es tecnología" con el pedazo azul de su reparto sin que nadie se lo explique. */
+  .fila .sector { font-style:normal; color:var(--tenue); margin-left:5px }
+  .fila .sector .bolita { display:inline-block; width:6px; height:6px; margin-right:3px;
+                          vertical-align:middle }
   /* El porcentaje es lo que se lee de un vistazo, así que va más grande y más fuerte que
      el cambio en dinero. Es lo que le da el aire de app de bolsa. */
   .fila .cuanto .mueve { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums;
@@ -233,6 +238,9 @@
   .ficha .encabezado { display:flex; align-items:center; gap:13px }
   .ficha h2 { margin:0; font-size:26px; font-weight:800; letter-spacing:-.8px }
   .ficha .ticker { color:var(--tenue); font-size:13px; font-weight:600; letter-spacing:.5px }
+  .ficha .sector { font-style:normal; margin-left:6px; letter-spacing:0 }
+  .ficha .sector .bolita { display:inline-block; width:7px; height:7px; margin-right:4px;
+                           vertical-align:middle }
   .ficha .nota { color:var(--suave); font-size:13.5px; margin-top:8px; line-height:1.45 }
   .datos { display:flex; gap:22px; margin-top:14px }
   .dato i { font-style:normal; display:block; color:var(--tenue); font-size:11px;
@@ -1656,7 +1664,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0938';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0957';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1748,7 +1756,12 @@ function adelantarTrinquete(r) {
 /* --- lo que pasó ESTA dia, derivado del reloj (sin guardar nada) ------ */
 
 function novedades(dia) {
-  if (dia <= 0) return { aportacion: 0, dividendos: 0, estrenos: [] };
+  /* ⚠️ `<= ARRANQUE`, NO `<= 0`. La partida no empieza en el índice 0 —eso es 2008— sino en
+     enero de 2015. Comparando el primer día contra el anterior (31-dic-2014, que ya es OTRO
+     año de bolsa) salía un aviso falso: "llegó tu dinero del año: $50" el día uno, cuando
+     todavía no ha caído ninguna aportación. Lo cachó Marco el 16-ago-2026 con la foto del
+     teléfono de su hijo: el letrero anunciaba $50 y el total decía $1,000. */
+  if (dia <= ARRANQUE) return { aportacion: 0, dividendos: 0, estrenos: [] };
   const hoy = Cartera.calcular(estado, DATOS, dia);
   const ayer = Cartera.calcular(estado, DATOS, dia - 1);
   return {
@@ -2279,7 +2292,9 @@ function pintarMercado(main, dia) {
         <div class="quien">
           <div class="tick">${e.ticker}
             ${mias.has(e.ticker) ? '<span class="sello">TUYA</span>' : ''}</div>
-          <div class="nombre_chico">${escapar(e.nombre)}</div>
+          <div class="nombre_chico">${escapar(e.nombre)}
+            <i class="sector"><i class="bolita" style="background:${Rueda.colorDe(e.sector)}"></i>${
+              escapar(Rueda.nombreDe(e.sector))}</i></div>
         </div>
         <div class="cuanto"><b>${dinero(px)}</b>${mueve}</div>
       </button>`;
@@ -2306,7 +2321,10 @@ function pintarFicha(main, dia) {
         ${circulo(e.ticker, e.nombre, 'grande')}
         <div>
           <h2>${escapar(e.nombre)}</h2>
-          <div class="ticker">${e.ticker}${e.tipo === 'canasta' ? ' · es una canasta, no una empresa' : ''}</div>
+          <div class="ticker">${e.ticker}
+            <i class="sector"><i class="bolita" style="background:${Rueda.colorDe(e.sector)}"></i>${
+              escapar(Rueda.nombreDe(e.sector))}</i>${
+            e.tipo === 'canasta' ? ' · es una canasta, no una empresa' : ''}</div>
         </div>
       </div>
       <div class="nota">${escapar(e.nota)}</div>
