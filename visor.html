@@ -58,12 +58,25 @@
   /* --- encabezado --- */
   header { padding:14px 16px 0; max-width:520px; margin:0 auto; width:100% }
   .cabe { display:flex; align-items:flex-start; justify-content:space-between; gap:10px }
-  .quien { font-size:13.5px; color:var(--suave); font-weight:600 }
+  .quien { font-size:13.5px; color:var(--suave); font-weight:600; margin-top:5px }
   .quien b { color:var(--texto) }
   .icono { width:36px; height:36px; border-radius:50%; border:1px solid var(--borde);
            background:var(--panel); color:var(--suave); display:grid; place-items:center;
            font-size:17px; cursor:pointer; flex:none }
   .cuando { font-size:12px; color:var(--tenue); margin-top:2px }
+
+  /* El par con StocKids: allá dice SIM en gris, aquí REAL en verde. Son dos pestañas de la
+     misma app y se parecen demasiado; el niño tiene que saber de un vistazo cuál trae dinero
+     de verdad. Lo pidió Marco el 16-ago-2026. */
+  .marca { font-weight:800; font-size:17px; letter-spacing:-.4px }
+  .marca .real { color:var(--verde); font-size:13px; font-weight:800; letter-spacing:.6px;
+                 margin-left:7px; vertical-align:2px }
+
+  /* Va donde StocKids pone su reloj, y contesta la pregunta que el reloj no tiene aquí:
+     dónde está el dinero de verdad. */
+  .der { display:flex; flex-direction:column; align-items:flex-end; gap:9px; flex:none }
+  .fuente { text-align:right; color:var(--tenue); font-size:11px; line-height:1.3 }
+  .fuente b { color:var(--suave); font-size:12.5px }
 
   .granTotal { font-size:40px; font-weight:800; letter-spacing:-1.8px; margin:10px 0 0;
                line-height:1.05 }
@@ -192,10 +205,14 @@
 <header>
   <div class="cabe">
     <div>
+      <div class="marca">Visor<span class="real">REAL</span></div>
       <div class="quien">El dinero de <b id="quien">…</b></div>
       <div class="cuando" id="cuando">…</div>
     </div>
-    <button class="icono" id="irAjustes" title="Ajustes">⚙</button>
+    <div class="der">
+      <div class="fuente" id="fuente">está en<br><b>GBM</b></div>
+      <button class="icono" id="irAjustes" title="Ajustes">⚙</button>
+    </div>
   </div>
 </header>
 
@@ -321,7 +338,7 @@
 
 <script>
 /* ===== cartera.json horneado, 1 KB ===== */
-const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 16-ago-2026 dentro de la app de GBM que SPYL N cotizaba 3.71% arriba de su valor real, mueve la décima parte de dinero que VUAA N, y su precio de ese día ERA su máximo de 52 semanas. VUAA N pegó al 0.17%. Ver CLAUDE.md.","nombre":"Patrizio y Lucca","instrumento":"VUAA N","movimientos":[{"f":"2026-08-16","t":"dep","monto":50}]};
+const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 16-ago-2026 dentro de la app de GBM que SPYL N cotizaba 3.71% arriba de su valor real, mueve la décima parte de dinero que VUAA N, y su precio de ese día ERA su máximo de 52 semanas. VUAA N pegó al 0.17%. Ver CLAUDE.md.","nombre":"Patrizio y Lucca","fuente":"GBM","instrumento":"VUAA N","movimientos":[{"f":"2026-08-16","t":"dep","monto":50}]};
 </script>
 <script>
 /* ===== visor.json horneado, 52 KB ===== */
@@ -1093,7 +1110,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260816-1249';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260816-1254';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
@@ -1120,6 +1137,7 @@ const $ = (id) => document.getElementById(id);
 let DATOS = null;          // lo horneado, ya decodificado
 let INST = null;           // el instrumento escogido
 let E = null;              // { nombre, instrumento, movimientos }
+let FUENTE = '';           // dónde está el dinero de verdad (GBM)
 let PRECIO_HOY = null;     // precio de hoy en pesos, con el dólar en vivo si se pudo
 let FX = null;             // { valor, fecha, vivo }
 let VISTA = 'mes';
@@ -1255,7 +1273,8 @@ function pintarDinero(foto, iHoy) {
           foto.titulos ? `pagó ${Visor.dinero(foto.promedio)} cada uno` : 'todavía ninguno']);
   t.push(['Cuesta hoy', Visor.dinero(PRECIO_HOY),
           FX.vivo ? `dólar de hoy: ${FX.valor.toFixed(2)}` : `dólar del ${FX.fecha}`]);
-  t.push(['Invertido', Visor.dinero(foto.valor), `${INST.clave} en el SIC`]);
+  t.push(['Invertido', Visor.dinero(foto.valor),
+          `${INST.clave} en el SIC` + (FUENTE ? `, con ${FUENTE}` : '')]);
   t.push(['Esperando', Visor.dinero(foto.efectivo),
           foto.efectivo >= PRECIO_HOY && PRECIO_HOY > 0
             ? `alcanza para ${Math.floor(foto.efectivo / PRECIO_HOY)} más`
@@ -1578,6 +1597,11 @@ function enlaceParaCompartir() {
    * Patrizio y Lucca"). Si algún día se vacía en `cartera.json`, cae solo al comportamiento
    * viejo: lo pregunta una vez y lo guarda en ese teléfono.
    */
+  /* Dónde está el dinero de verdad. Sale del archivo, no clavado en el HTML: el bróker puede
+     cambiar y ese dato tiene que poder corregirse en una línea, como todo lo demás. */
+  FUENTE = HORNEADA.fuente || '';
+  $('fuente').innerHTML = FUENTE ? `está en<br><b>${FUENTE}</b>` : '';
+
   const NOMBRE_FIJO = !!HORNEADA.nombre;
   if (!NOMBRE_FIJO) E.nombre = E.nombre || localStorage.getItem(CLAVE_NOMBRE) || '';
   const estrenando = !E.nombre;
