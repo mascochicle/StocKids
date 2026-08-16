@@ -284,6 +284,14 @@
                          color:var(--texto); font:inherit; font-size:14.5px; font-weight:650;
                          cursor:pointer }
   .ajuste button.ancho:disabled { opacity:.5 }
+  /* La zona de peligro se ve distinta a propósito: borrar meses de juego no debe parecerse
+     a cambiar un color. */
+  .ajuste.peligro { border-color:rgba(248,113,113,.35) }
+  .ajuste.peligro h3 { color:var(--rojo) }
+  .ajuste button.suave { color:var(--rojo); border-color:rgba(248,113,113,.35) }
+  .ajuste .aviso_borrar { color:var(--texto); line-height:1.5; margin-bottom:12px }
+  .ajuste .aviso_borrar b { color:var(--rojo) }
+  button.borrar { background:var(--rojo); color:#fff }
 
   .sello_ver { text-align:center; color:var(--tenue); opacity:.45; font-size:10px; padding:10px 0 4px;
                letter-spacing:.5px; user-select:none }
@@ -1532,6 +1540,9 @@ let vistaFicha = 'mes';
 /* La ventana visible de la ficha. Los chips la fijan; arrastrar y pellizcar la mueven. */
 let ventanaFicha = null;
 let fichaDeLaVentana = null;
+/* Si ya tocó "Empezar de nuevo" una vez. Se olvida al salir de Ajustes: borrar meses de
+   juego no puede quedar armado esperando un toque distraído. */
+let confirmandoBorrar = false;
 
 /*
  * El círculo del logo. Si la empresa trae imagen, va la imagen; si no, un círculo dibujado
@@ -1594,7 +1605,7 @@ if (window.matchMedia) {
     revisarTemaDelSistema);
 }
 aplicarTema();
-const SK_VER = '20260816-0846';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260816-0850';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -1970,9 +1981,20 @@ const serieMetido = () => _metido || (_metido = Array.from(
   (_, k) => Cartera.CAPITAL_INICIAL
     + Cartera.aportacionesA(DATOS, ARRANQUE + k) * Cartera.APORTACION));
 
+/* "3 meses" / "12 días", o null si empezó hoy — para que la advertencia de borrar diga algo
+   concreto y no un número de días de bolsa que a nadie le dice nada. */
+function tiempoJugado() {
+  const dias = Math.max(0, Math.floor((Date.now() - estado.ancla) / 86400000));
+  if (dias === 0) return null;                     // "los 0 días de juego" se lee mal
+  if (dias < 45) return `${dias} ${dias === 1 ? 'día' : 'días'}`;
+  const meses = Math.round(dias / 30.4375);
+  return `${meses} ${meses === 1 ? 'mes' : 'meses'}`;
+}
+
 /* --- vista: ajustes ------------------------------------------------------ */
 
-function pintarAjustes(main) {
+function pintarAjustes(main, r) {
+  const foto = Cartera.calcular(estado, DATOS, r.dia);
   const elegido = temaElegido();
   const opciones = [['oscuro', 'Noche'], ['claro', 'Día'], ['sistema', 'Sistema']];
 
@@ -2004,9 +2026,25 @@ function pintarAjustes(main) {
           { day: 'numeric', month: 'long', year: 'numeric' })}</b> y llevas
         <b>${estado.movimientos.length}</b> ${estado.movimientos.length === 1
           ? 'movimiento' : 'movimientos'}.</p>
-      <p style="margin-top:9px">Todo vive en este teléfono y no sale de aquí.
-        No hay botón de empezar de nuevo, y es a propósito: en la bolsa de verdad tampoco
-        se puede deshacer.</p>
+      <p style="margin-top:9px">Todo vive en este teléfono y no sale de aquí.</p>
+    </div>
+
+    <div class="ajuste peligro">
+      <h3>Empezar de nuevo</h3>
+      ${confirmandoBorrar ? `
+        <p class="aviso_borrar">Se va a borrar <b>TODO</b>: tus
+          ${estado.movimientos.length} ${estado.movimientos.length === 1
+            ? 'movimiento' : 'movimientos'} y los
+          <b>${dinero(foto.total)}</b> que tienes ahora${
+            tiempoJugado() ? `, más los <b>${tiempoJugado()}</b> que llevas jugando` : ''}.
+          Vuelve a enero de 2015 con $1,000. <b>No se puede deshacer.</b></p>
+        <div class="acciones" style="padding:0">
+          <button class="boton vender" data-borrar="no">Mejor no</button>
+          <button class="boton borrar" data-borrar="si">Sí, borrar todo</button>
+        </div>`
+      : `<p>Vuelve al primer día con $1,000 y sin nada comprado. Tu nombre y todo lo que
+           hayas hecho se borran para siempre.</p>
+         <button class="ancho suave" data-borrar="quiza">Empezar de nuevo</button>`}
     </div>`;
 
   /* Igual que en MasMoney: tirar la caché y desregistrar el service worker, porque ahí vive
@@ -2318,11 +2356,30 @@ document.addEventListener('click', (ev) => {
   // adentro siguen ganando porque están más cerca del toque.
   const t = ev.target.closest('[data-ir],[data-ficha],[data-volver],[data-comprar],' +
                               '[data-vender],[data-cerrar],[data-atajo],[data-hacer],' +
-                              '[data-nombre],[data-vista],[data-tema],[data-nocerrar]');
+                              '[data-nombre],[data-vista],[data-tema],[data-borrar],' +
+                              '[data-nocerrar]');
   if (!t) return;
 
   if (t.dataset.nocerrar) return;
   if (t.dataset.nombre)  { hoja = { tipo: 'nombre' }; }
+  if (t.dataset.borrar) {
+    if (t.dataset.borrar === 'quiza') confirmandoBorrar = true;
+    else if (t.dataset.borrar === 'no') confirmandoBorrar = false;
+    else {
+      /* Aquí sí se borra. El TEMA se queda: es una preferencia, no parte de la partida, y
+         devolverle el fondo blanco a alguien que lo puso en noche sería una grosería. */
+      localStorage.removeItem(CLAVE);
+      estado = null;
+      confirmandoBorrar = false;
+      diaPintado = -1;
+      vista = 'cartera';
+      fichaAbierta = null;
+      pintar();                  // si cambias el estado, repinta TÚ (trampa #3)
+      return;
+    }
+  }
+  // Salir de Ajustes desarma la confirmación: no puede quedar esperando un toque distraído.
+  if (t.dataset.ir && t.dataset.ir !== 'ajustes') confirmandoBorrar = false;
   if (t.dataset.tema) {
     localStorage.setItem(CLAVE_TEMA, t.dataset.tema);
     temaVisto = sistemaOscuro();
