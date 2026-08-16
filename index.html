@@ -173,11 +173,11 @@
   /* --- de quién es esto --- */
   /* Nada de flex aquí: con flex, "El dinero de" y el nombre son dos cajas y se parten en
      dos renglones. Texto normal y el lápiz pegado con ::after. */
-  .dueno { background:none; border:none; padding:0 0 2px; font:inherit; font-size:12.5px;
-           font-weight:600; color:var(--suave); letter-spacing:.2px; cursor:pointer;
+  .dueno { background:none; border:none; padding:0 0 3px; font:inherit; font-size:14px;
+           font-weight:600; color:var(--suave); letter-spacing:.1px; cursor:pointer;
            text-align:left; display:block }
-  .dueno u { text-decoration:none; color:var(--texto) }
-  .dueno::after { content:' ✎'; font-size:10px; color:var(--tenue) }
+  .dueno u { text-decoration:none; color:var(--texto); font-weight:750 }
+  .dueno::after { content:' ✎'; font-size:11px; color:var(--tenue) }
 
   /* --- la bienvenida: solo la primera vez --- */
   .bienvenida { flex:1; display:flex; flex-direction:column; justify-content:center;
@@ -819,7 +819,7 @@ const SEMANAS = DATOS.semanas;
 const ULTIMA = SEMANAS.length - 1;
 
 const CLAVE = 'stockids.v1';
-const SK_VER = '20260815-2108';    // sello para saber si ya llegó la versión nueva
+const SK_VER = '20260815-2119';    // sello para saber si ya llegó la versión nueva
 
 /* Solo para que Marco pueda ver cualquier momento sin esperarse meses. No se guarda (el
    trinquete no se mueve), no se anuncia, y el niño no tiene por qué encontrarlo.
@@ -924,21 +924,35 @@ function cambioSemanal(e, semana) {
 
 /* --- la primera vez ------------------------------------------------------ */
 
+/*
+ * Sale en dos casos, y la diferencia importa:
+ *   - partida nueva: aquí ARRANCA el reloj, al tocar el botón.
+ *   - partida ya empezada pero sin nombre: son los que ya venían jugando desde antes de que
+ *     existiera esta pantalla. Hay que preguntarles igual, pero SIN tocarles el reloj ni los
+ *     movimientos. Si no, se quedaban para siempre con "El dinero de undefined" y un lapicito
+ *     que nadie ve (le pasó a Marco el 15-ago-2026).
+ */
 function pintarBienvenida() {
+  const siguiendo = !!estado;
+
   document.querySelector('header').style.display = 'none';
   document.querySelector('nav').style.display = 'none';
   $('#vista').innerHTML = `
     <div class="bienvenida">
       <div class="logo">Stoc<span>Kids</span></div>
-      <p class="trato">Vas a empezar con <b>$1,000</b> en enero de <b>2015</b>, y la bolsa va
-      a correr sola: <b>cada mes que pase aquí afuera es un año allá adentro</b>. Un precio
-      nuevo cada 14 horas, con lo que de verdad pasó.</p>
-      <p class="trato">No hay prisa. Esto no se gana comprando y vendiendo rápido.</p>
+      ${siguiendo ? `
+        <p class="trato">Tu dinero ya viene corriendo. Solo falta una cosa:
+        <b>¿de quién es?</b></p>`
+      : `
+        <p class="trato">Vas a empezar con <b>$1,000</b> en enero de <b>2015</b>, y la bolsa va
+        a correr sola: <b>cada mes que pase aquí afuera es un año allá adentro</b>. Un precio
+        nuevo cada 14 horas, con lo que de verdad pasó.</p>
+        <p class="trato">No hay prisa. Esto no se gana comprando y vendiendo rápido.</p>`}
       <label for="nombreInput">¿Cómo te llamas?</label>
       <input id="nombreInput" type="text" autocomplete="given-name" enterkeyhint="go"
              maxlength="${NOMBRE_MAX}" placeholder="Tu nombre" autocapitalize="words">
       <p class="aguas">Se queda en este teléfono. Nadie más lo ve, y no se manda a ningún lado.</p>
-      <button id="empezar" disabled>Empezar</button>
+      <button id="empezar" disabled>${siguiendo ? 'Continuar' : 'Empezar'}</button>
     </div>`;
 
   const caja = $('#nombreInput'), boton = $('#empezar');
@@ -949,8 +963,9 @@ function pintarBienvenida() {
   boton.addEventListener('click', () => {
     const nombre = limpiarNombre(caja.value);
     if (nombre.length < 2) return;
+    if (siguiendo) estado.nombre = nombre;      // no se le toca el reloj ni lo que compró
     // AQUÍ arranca el mundo, no cuando se abrió la página.
-    estado = { ...Cartera.nueva(Date.now()), nombre };
+    else estado = { ...Cartera.nueva(Date.now()), nombre };
     guardar();
     document.querySelector('header').style.display = '';
     document.querySelector('nav').style.display = '';
@@ -962,7 +977,9 @@ function pintarBienvenida() {
 /* --- pintar -------------------------------------------------------------- */
 
 function pintar() {
-  if (!estado) { pintarBienvenida(); return; }
+  // Sin nombre tampoco se pinta la app: los que ya venían jugando desde antes también
+  // tienen que pasar por la pregunta.
+  if (!estado || !estado.nombre) { pintarBienvenida(); return; }
 
   const r = reloj();
   adelantarTrinquete(r);
