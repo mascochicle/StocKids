@@ -121,8 +121,11 @@
                margin-bottom:1px }
   .tarjeta b { font-size:17px; font-weight:700; letter-spacing:-.3px }
   .tarjeta small { display:block; color:var(--tenue); font-size:11px; margin-top:1px }
-  .tarjeta em.moneda { font-style:normal; font-size:12.5px; font-weight:700;
-                       color:var(--suave); letter-spacing:.5px; margin-left:4px }
+  /* Genérica: `<em>` es cursiva por defecto y la etiqueta de moneda no lo es. Antes solo
+     había reglas por contexto y en cualquier lugar nuevo salía en cursiva. */
+  em.moneda { font-style:normal; font-weight:700; color:var(--suave); letter-spacing:.5px;
+              margin-left:4px; font-size:12.5px }
+  .tarjeta em.moneda { font-size:12.5px }
 
   /* --- listas --- */
   .titulo { font-size:12px; font-weight:700; color:var(--suave); text-transform:uppercase;
@@ -138,6 +141,21 @@
   .fila .cifra small { display:block; color:var(--tenue); font-weight:500; font-size:11px }
   .borrar { background:none; border:none; color:var(--tenue); font-size:17px; cursor:pointer;
             padding:2px 4px; flex:none }
+
+  /* --- quién ha puesto ---
+     Barra de fondo en vez de una rueda: son dos o tres personas, no una cartera; una dona
+     para dos rebanadas es adorno. La barra dice la proporción de un vistazo. */
+  .aportes { display:flex; flex-direction:column; gap:7px }
+  .aporte { position:relative; display:flex; align-items:baseline; gap:9px;
+            padding:11px 13px; border:1px solid var(--borde); border-radius:13px;
+            background:var(--panel); overflow:hidden }
+  .aporte .barra { position:absolute; inset:0; pointer-events:none }
+  .aporte .barra i { display:block; height:100%; background:var(--verde); opacity:.13 }
+  .aporte b { flex:1; font-size:14.5px; font-weight:700; position:relative; min-width:0;
+              overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .aporte span { font-size:14.5px; font-weight:700; position:relative; white-space:nowrap }
+  .aporte > i { font-style:normal; color:var(--tenue); font-size:12.5px; font-weight:700;
+                position:relative; width:38px; text-align:right; flex:none }
 
   /* --- vacío --- */
   .vacio { background:var(--panel); border:1px dashed var(--borde); border-radius:16px;
@@ -243,6 +261,7 @@
       <div class="claves" id="claves"></div>
 
       <div class="tarjetas" id="tarjetas"></div>
+      <div id="quienes"></div>
 
       <div id="zonaVacia"></div>
 
@@ -285,6 +304,10 @@
     <div id="camposMonto">
       <label class="campo"><span id="etiquetaMonto">¿Cuánto?</span>
         <input type="number" id="cMonto" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></label>
+      <!-- Aportan los dos hijos y Marco: sin esto no se sabría de quién es el dinero. -->
+      <label class="campo"><span>¿De quién es?</span>
+        <input type="text" id="cQuien" maxlength="24" autocomplete="off"
+               placeholder="Patrizio, Lucca, Marco…"></label>
     </div>
 
     <div id="camposTitulos" class="oculto">
@@ -354,7 +377,7 @@
 
 <script>
 /* ===== cartera.json horneado, 1 KB ===== */
-const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 16-ago-2026 dentro de la app de GBM que SPYL N cotizaba 3.71% arriba de su valor real, mueve la décima parte de dinero que VUAA N, y su precio de ese día ERA su máximo de 52 semanas. VUAA N pegó al 0.17%. Ver CLAUDE.md.","nombre":"Patrizio y Lucca","fuente":"GBM","instrumento":"VUAA N","movimientos":[{"f":"2026-08-16","t":"dep","monto":50}]};
+const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 17-ago-2026 con el mercado ABIERTO que VUAA N opera dentro de 0.29% alrededor de su valor real, mientras SPYL N cotizaba 3.71% arriba. Ver CLAUDE.md.","_quien":"Los depósitos llevan `quien`: aportan los dos hijos y Marco de vez en cuando. Sin eso no se sabría de quién es el dinero, y son tres personas en una sola cuenta. Las compras NO llevan `quien`: se compra con el bote junto, no con el dinero de alguien en particular.","nombre":"Patrizio y Lucca","fuente":"GBM","instrumento":"VUAA N","movimientos":[{"f":"2026-08-16","t":"dep","monto":50,"quien":"Marco"}]};
 </script>
 <script>
 /* ===== visor.json horneado, 52 KB ===== */
@@ -551,10 +574,24 @@ const Visor = (() => {
     let depositado = 0, retirado = 0, efectivo = 0, titulos = 0, costo = 0;
     let comprado = 0, vendido = 0;
 
+    /*
+     * Quién ha metido cuánto. Son TRES personas en una sola cuenta —los dos hijos y Marco de
+     * vez en cuando— y sin esto no se sabría de quién es el dinero.
+     *
+     * ⚠️ Es un REGISTRO de aportaciones, no un reparto de la ganancia. Repartir en proporción
+     * a lo aportado sería injusto si metieron en momentos distintos: el que entró antes compró
+     * más barato. Para repartir de verdad harían falta unidades, como un fondo. Ver CLAUDE.md.
+     */
+    const porQuien = new Map();
+    const anotar = (quien, monto) => {
+      const k = quien || 'Sin nombre';
+      porQuien.set(k, (porQuien.get(k) || 0) + monto);
+    };
+
     for (const m of enOrden(estado.movimientos)) {
       if (m.f > iso) break;
-      if (m.t === 'dep') { depositado += m.monto; efectivo += m.monto; }
-      else if (m.t === 'ret') { retirado += m.monto; efectivo -= m.monto; }
+      if (m.t === 'dep') { depositado += m.monto; efectivo += m.monto; anotar(m.quien, m.monto); }
+      else if (m.t === 'ret') { retirado += m.monto; efectivo -= m.monto; anotar(m.quien, -m.monto); }
       else if (m.t === 'compra') {
         const cuesta = m.titulos * m.precio;
         efectivo -= cuesta; titulos += m.titulos; costo += cuesta; comprado += cuesta;
@@ -591,6 +628,11 @@ const Visor = (() => {
       promedio: titulos > 0 ? costo / titulos : 0,
       comprado,
       vendido,
+      // [{quien, monto, parte}] de mayor a menor. `parte` es su tajada de lo METIDO.
+      quienes: [...porQuien.entries()]
+        .map(([quien, monto]) => ({ quien, monto,
+          parte: (depositado - retirado) > 0 ? monto / (depositado - retirado) : 0 }))
+        .sort((a, b) => b.monto - a.monto),
       // Contra lo METIDO, nunca contra el primer depósito: si no, meter dinero se vería como
       // ganancia y sería mentira. Misma regla que en StocKids.
       ganancia: total - metido,
@@ -1129,7 +1171,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260817-0750';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260817-1209';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
@@ -1253,6 +1295,11 @@ async function precioDeHoy() {
 
 const HOY = () => Visor.hoyISO();
 
+/* Los nombres salen de `cartera.json` y del campo de captura: se escapan antes de meterlos
+   en `innerHTML`, como cualquier texto que no escribimos nosotros. */
+const escaparTexto = (s) => String(s).replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 /* La cifra grande SIEMPRE con su moneda. Va en una función porque el dedo también reescribe
    ese elemento al leer la gráfica, y con `textContent` la etiqueta desaparecía a la primera
    caricia. */
@@ -1312,6 +1359,19 @@ function pintarDinero(foto, iHoy) {
   $('tarjetas').innerHTML = t.map(([i, b, s]) =>
     `<div class="tarjeta"><i>${i}</i><b>${b}</b><small>${s}</small></div>`).join('');
 
+  /* --- quién ha puesto qué ---
+     Son tres personas en una sola cuenta. Sin esto no se sabe de quién es el dinero. */
+  const qs = foto.quienes.filter(q => Math.abs(q.monto) > 0.005);
+  $('quienes').innerHTML = qs.length ? `
+    <div class="titulo">Quién ha puesto</div>
+    <div class="aportes">${qs.map(q => `
+      <div class="aporte">
+        <div class="barra"><i style="width:${(q.parte * 100).toFixed(1)}%"></i></div>
+        <b>${escaparTexto(q.quien)}</b>
+        <span>${Visor.dinero(q.monto)}<em class="moneda">${MONEDA}</em></span>
+        <i>${(q.parte * 100).toFixed(0)}%</i>
+      </div>`).join('')}</div>` : '';
+
   /* --- vacío --- */
   $('zonaVacia').innerHTML = hay ? '' : `
     <div class="vacio">
@@ -1356,7 +1416,8 @@ function pintarDinero(foto, iHoy) {
       ? Visor.dinero(m.monto)
       : Visor.dinero(m.titulos * m.precio);
     const detalle = m.t === 'dep' || m.t === 'ret'
-      ? '' : `<small>${m.titulos} × ${Visor.dinero(m.precio)}</small>`;
+      ? (m.quien ? `<small>${escaparTexto(m.quien)}</small>` : '')
+      : `<small>${m.titulos} × ${Visor.dinero(m.precio)}</small>`;
     return `<div class="fila">
       <div class="señal" style="background:color-mix(in srgb, ${color} 18%, transparent);
            color:${color}">${glifo}</div>
@@ -1499,6 +1560,7 @@ function abrirCaptura() {
   CAPTURA = 'dep';
   $('cFecha').value = HOY();
   $('cMonto').value = ''; $('cTitulos').value = ''; $('cPrecio').value = '';
+  $('cQuien').value = '';
   pintarTipos();
   $('telonCaptura').dataset.abierto = '1';
 }
@@ -1521,8 +1583,12 @@ function pintarTipos() {
 
 function movimientoDelFormulario() {
   const f = $('cFecha').value;
-  if (CAPTURA === 'dep' || CAPTURA === 'ret')
-    return { f, t: CAPTURA, monto: Number($('cMonto').value) };
+  if (CAPTURA === 'dep' || CAPTURA === 'ret') {
+    const mov = { f, t: CAPTURA, monto: Number($('cMonto').value) };
+    const quien = $('cQuien').value.trim();
+    if (quien) mov.quien = quien;
+    return mov;
+  }
   return { f, t: CAPTURA, titulos: Number($('cTitulos').value), precio: Number($('cPrecio').value) };
 }
 
@@ -1675,7 +1741,7 @@ function enlaceParaCompartir() {
   if (CAPTURA_VISIBLE) {
   $('botonCapturar').addEventListener('click', abrirCaptura);
   $('cerrarCaptura').addEventListener('click', () => $('telonCaptura').dataset.abierto = '0');
-  ['cFecha', 'cMonto', 'cTitulos', 'cPrecio'].forEach(id =>
+  ['cFecha', 'cMonto', 'cTitulos', 'cPrecio', 'cQuien'].forEach(id =>
     $(id).addEventListener('input', revisarCaptura));
   $('hacerCaptura').addEventListener('click', () => {
     const r = Visor.agregar(E, INST, movimientoDelFormulario());
