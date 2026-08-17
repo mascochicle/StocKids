@@ -381,8 +381,8 @@
 </div>
 
 <script>
-/* ===== cartera.json horneado, 1 KB ===== */
-const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 17-ago-2026 con el mercado ABIERTO que VUAA N opera dentro de 0.29% alrededor de su valor real, mientras SPYL N cotizaba 3.71% arriba. Ver CLAUDE.md.","_quien":"Los depósitos llevan `quien`: aportan los dos hijos y Marco de vez en cuando. Sin eso no se sabría de quién es el dinero, y son tres personas en una sola cuenta. Las compras NO llevan `quien`: se compra con el bote junto, no con el dinero de alguien en particular.","_comision":"GBM cobra 0.25% + IVA en el SIC. Va DENTRO de la compra (`comision`), no como gasto suelto: es lo que de verdad costó tener ese título. Sin ella el efectivo del visor se desviaría del de GBM en cada compra. La primera: 2,558.00 × 0.25% × 1.16 = 7.42, y GBM cargó 2,565.418 dejando 84.58 disponibles.","nombre":"Patrizio y Lucca","fuente":"GBM","instrumento":"VUAA N","movimientos":[{"f":"2026-08-16","t":"dep","monto":50,"quien":"Marco"},{"f":"2026-08-17","t":"dep","monto":2600,"quien":"Patrizio"},{"f":"2026-08-17","t":"compra","titulos":1,"precio":2558.0,"comision":7.42},{"f":"2026-08-17","t":"dep","monto":550,"quien":"Lucca"}]};
+/* ===== cartera.json horneado, 2 KB ===== */
+const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro), interes (rendimiento). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_interes":"Para el rendimiento del dinero parado en Smart Cash. NO lleva `quien` a propósito: ese dinero no lo puso nadie, lo generó el bote, y por eso NO emite unidades — sube el valor de la unidad y les toca a los tres en proporción, solo. Capturarlo como `dep` sería el error obvio y silencioso: le regalaría a una persona lo que ganó el bote de todos. Puede ir en negativo: Smart Cash es un fondo, no un depósito.","_instrumento":"VUAA N y no SPYL N: se verificó el 17-ago-2026 con el mercado ABIERTO que VUAA N opera dentro de 0.29% alrededor de su valor real, mientras SPYL N cotizaba 3.71% arriba. Ver CLAUDE.md.","_quien":"⚠️ `quien` es DE QUIÉN ES el dinero, NO quién lo puso. Marco lo pidió así el 17-ago-2026: él también aporta, pero su nombre no sale — dice para cuál de los dos hijos es y ahí se anota. Los $50 del 16-ago los puso él y son de Lucca. Es la cuenta de sus hijos y él es el conducto, no un socio. Las compras NO llevan `quien`: se compra con el bote junto, no con el dinero de alguien en particular.","_comision":"GBM cobra 0.25% + IVA en el SIC. Va DENTRO de la compra (`comision`), no como gasto suelto: es lo que de verdad costó tener ese título. Sin ella el efectivo del visor se desviaría del de GBM en cada compra. La primera: 2,558.00 × 0.25% × 1.16 = 7.42, y GBM cargó 2,565.418 dejando 84.58 disponibles.","nombre":"Patrizio y Lucca","fuente":"GBM","instrumento":"VUAA N","movimientos":[{"f":"2026-08-16","t":"dep","monto":50,"quien":"Lucca"},{"f":"2026-08-17","t":"dep","monto":2600,"quien":"Patrizio"},{"f":"2026-08-17","t":"compra","titulos":1,"precio":2558.0,"comision":7.42},{"f":"2026-08-17","t":"dep","monto":550,"quien":"Lucca"}]};
 </script>
 <script>
 /* ===== visor.json horneado, 52 KB ===== */
@@ -488,7 +488,15 @@ const Visor = (() => {
 
   const nuevo = (nombre, instrumento) => ({ nombre, instrumento, movimientos: [] });
 
-  const TIPOS = { dep: 'Depósito', ret: 'Retiro', compra: 'Compra', venta: 'Venta' };
+  /*
+   * `interes` es el rendimiento del dinero que está esperando (Smart Cash, que es un fondo de
+   * corto plazo). NO es una aportación y por eso NO lleva `quien`: ese dinero no lo puso
+   * nadie, lo generó el bote. Ver `calcular` para por qué no emite unidades.
+   */
+  const TIPOS = {
+    dep: 'Depósito', ret: 'Retiro', compra: 'Compra', venta: 'Venta',
+    interes: 'Rendimiento',
+  };
 
   /*
    * Los movimientos se ordenan por fecha SIEMPRE, porque se pueden capturar tarde: Marco
@@ -526,6 +534,18 @@ const Visor = (() => {
       if (!(mov.monto > 0)) return 'El monto tiene que ser mayor que cero.';
       if (mov.t === 'ret' && mov.monto > antes.efectivo + 0.005)
         return `Ese día solo había ${dinero(antes.efectivo)} sin invertir.`;
+      return null;
+    }
+
+    /*
+     * El rendimiento SÍ puede ser negativo: Smart Cash es un fondo, no un depósito, y su
+     * valor se mueve. Casi siempre sube, pero "casi siempre" es justo lo que muerde después.
+     */
+    if (mov.t === 'interes') {
+      if (typeof mov.monto !== 'number' || !isFinite(mov.monto) || mov.monto === 0)
+        return 'El rendimiento no puede ser cero.';
+      if (mov.monto < 0 && -mov.monto > antes.efectivo + 0.005)
+        return `Ese día solo había ${dinero(antes.efectivo)} esperando.`;
       return null;
     }
 
@@ -582,7 +602,7 @@ const Visor = (() => {
    */
   function calcular(estado, inst, iso, precioHoy) {
     let depositado = 0, retirado = 0, efectivo = 0, titulos = 0, costo = 0;
-    let comprado = 0, vendido = 0, comisiones = 0;
+    let comprado = 0, vendido = 0, comisiones = 0, rendimiento = 0;
 
     /*
      * ⚠️ DE QUIÉN ES EL DINERO — contabilidad por UNIDADES, como un fondo.
@@ -632,6 +652,19 @@ const Visor = (() => {
       if (m.f > iso) break;
       if (m.t === 'dep') { mover(m, 1); depositado += m.monto; efectivo += m.monto; }
       else if (m.t === 'ret') { mover(m, -1); retirado += m.monto; efectivo -= m.monto; }
+      else if (m.t === 'interes') {
+        /*
+         * ⚠️ NO LLAMA A `mover`, Y ESA ES TODA LA GRACIA.
+         *
+         * El rendimiento entra como efectivo pero NO emite unidades, así que el mismo dinero
+         * queda repartido entre las mismas participaciones: sube el valor de la unidad y les
+         * toca a los tres en proporción, sin que nadie lo reparta a mano.
+         *
+         * Meterlo como `dep` sería el error obvio y silencioso: le daría unidades a alguien,
+         * o sea le regalaría a una sola persona un dinero que generó el bote de todos.
+         */
+        efectivo += m.monto; rendimiento += m.monto;
+      }
       else if (m.t === 'compra') {
         /*
          * ⚠️ LA COMISIÓN VA ADENTRO DEL COSTO, no aparte. GBM cobra 0.25% + IVA en el SIC:
@@ -682,6 +715,9 @@ const Visor = (() => {
       comprado,
       vendido,
       comisiones,          // lo que se ha llevado el bróker, en total
+      // Lo que ha dado el dinero mientras espera. Es lo único que en este visor llega por no
+      // hacer nada — el ETF es acumulativo y no reparte dividendos.
+      rendimiento,
       unidades,
       // Lo que vale una participación hoy. Arranca en 1.00 y sube o baja con la cuenta: es el
       // rendimiento de la cartera limpio de aportaciones, la cifra que un fondo publica.
@@ -1244,7 +1280,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260817-1258';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260817-1343';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
@@ -1429,6 +1465,15 @@ function pintarDinero(foto, iHoy) {
           foto.efectivo >= PRECIO_HOY && PRECIO_HOY > 0
             ? `alcanza para ${Math.floor(foto.efectivo / PRECIO_HOY)} más`
             : 'sin invertir']);
+  /*
+   * Solo aparece cuando de verdad hay rendimiento, o sea cuando el dinero parado se mandó a
+   * Smart Cash. Mientras esté en Trading MX ganando cero, una tarjeta en $0.00 solo estorba.
+   *
+   * Es lo ÚNICO que en este visor llega por no hacer nada: el ETF es acumulativo y no reparte
+   * dividendos. Vale la tarjeta aparte por eso.
+   */
+  if (foto.rendimiento) t.push(['Ganó esperando', conMon(foto.rendimiento),
+                                'el dinero sin invertir también trabaja']);
   $('tarjetas').innerHTML = t.map(([i, b, s]) =>
     `<div class="tarjeta"><i>${i}</i><b>${b}</b><small>${s}</small></div>`).join('');
 
@@ -1487,23 +1532,29 @@ function pintarDinero(foto, iHoy) {
 
   /* --- movimientos, del más nuevo al más viejo --- */
   const señales = {
-    dep:    ['↓', 'var(--verde)'],
-    ret:    ['↑', 'var(--rojo)'],
-    compra: ['＋', 'var(--azul)'],
-    venta:  ['−', 'var(--ambar)'],
+    dep:     ['↓', 'var(--verde)'],
+    ret:     ['↑', 'var(--rojo)'],
+    compra:  ['＋', 'var(--azul)'],
+    venta:   ['−', 'var(--ambar)'],
+    interes: ['%', 'var(--verde)'],
   };
   const orden = Visor.enOrden(E.movimientos);
   $('listaMovs').innerHTML = orden.slice().reverse().map((m) => {
     const real = E.movimientos.indexOf(m);
     const [glifo, color] = señales[m.t];
+    // `interes` va con los de monto y NO con los de título: si cayera en la otra rama
+    // saldría `NaN`, porque no tiene ni títulos ni precio.
+    const porMonto = m.t === 'dep' || m.t === 'ret' || m.t === 'interes';
     // En compras y ventas se enseña el CARGO REAL, con comisión adentro: es lo que salió de
     // la cuenta, y es el número que tiene que cuadrar con el estado de GBM.
     const com = m.comision || 0;
-    const cuanto = m.t === 'dep' || m.t === 'ret'
+    const cuanto = porMonto
       ? Visor.dinero(m.monto)
       : Visor.dinero(m.titulos * m.precio + (m.t === 'compra' ? com : -com));
-    const detalle = m.t === 'dep' || m.t === 'ret'
-      ? (m.quien ? `<small>${escaparTexto(m.quien)}</small>` : '')
+    const detalle = porMonto
+      // El rendimiento no lleva `quien` a propósito: no lo puso nadie, lo generó el bote.
+      ? (m.t === 'interes' ? '<small>del dinero esperando</small>'
+         : m.quien ? `<small>${escaparTexto(m.quien)}</small>` : '')
       : `<small>${m.titulos} × ${Visor.dinero(m.precio)}${
           com ? ` + ${Visor.dinero(com)} de comisión` : ''}</small>`;
     return `<div class="fila">
@@ -1653,16 +1704,29 @@ function abrirCaptura() {
   $('telonCaptura').dataset.abierto = '1';
 }
 
+/*
+ * Los tipos que se capturan con un MONTO y no con títulos × precio. Vive en un solo lugar
+ * porque se necesita en cuatro, y la vez que estuvo repetido `interes` cayó en la otra rama
+ * y salió `NaN`.
+ */
+const POR_MONTO = new Set(['dep', 'ret', 'interes']);
+
 function pintarTipos() {
   $('tipos').innerHTML = Object.entries(Visor.TIPOS)
     .map(([k, v]) => `<button data-t="${k}" aria-pressed="${k === CAPTURA}">${v}</button>`).join('');
   $('tipos').querySelectorAll('button').forEach(b =>
     b.addEventListener('click', () => { CAPTURA = b.dataset.t; pintarTipos(); revisarCaptura(); }));
 
-  const esMonto = CAPTURA === 'dep' || CAPTURA === 'ret';
+  const esMonto = POR_MONTO.has(CAPTURA);
   $('camposMonto').classList.toggle('oculto', !esMonto);
   $('camposTitulos').classList.toggle('oculto', esMonto);
-  $('etiquetaMonto').textContent = CAPTURA === 'dep' ? '¿Cuánto entró?' : '¿Cuánto sacó?';
+  // El rendimiento no lleva nombre: no lo puso nadie, lo generó el bote.
+  $('cQuien').closest('label').classList.toggle('oculto', CAPTURA === 'interes');
+  // Y es el único que puede ir en negativo: Smart Cash es un fondo y su valor se mueve.
+  // Con `min="0"` fijo, el campo no dejaría teclear el día que baje.
+  $('cMonto').min = CAPTURA === 'interes' ? '' : '0';
+  $('etiquetaMonto').textContent = CAPTURA === 'dep' ? '¿Cuánto entró?'
+    : CAPTURA === 'interes' ? '¿Cuánto dio el dinero parado?' : '¿Cuánto sacó?';
   $('subCaptura').textContent = CAPTURA === 'compra'
     ? `Los títulos y el precio salen de la app de GBM, tal cual.`
     : 'Lo que de verdad pasó en la cuenta de GBM.';
@@ -1671,10 +1735,10 @@ function pintarTipos() {
 
 function movimientoDelFormulario() {
   const f = $('cFecha').value;
-  if (CAPTURA === 'dep' || CAPTURA === 'ret') {
+  if (POR_MONTO.has(CAPTURA)) {
     const mov = { f, t: CAPTURA, monto: Number($('cMonto').value) };
     const quien = $('cQuien').value.trim();
-    if (quien) mov.quien = quien;
+    if (quien && CAPTURA !== 'interes') mov.quien = quien;
     return mov;
   }
   return { f, t: CAPTURA, titulos: Number($('cTitulos').value), precio: Number($('cPrecio').value) };
@@ -1686,7 +1750,7 @@ function movimientoDelFormulario() {
  */
 function revisarCaptura() {
   const m = movimientoDelFormulario();
-  const vacio = (m.t === 'dep' || m.t === 'ret') ? !m.monto : (!m.titulos || !m.precio);
+  const vacio = POR_MONTO.has(m.t) ? !m.monto : (!m.titulos || !m.precio);
   const error = vacio ? null : Visor.revisar(E, INST, m);
 
   $('previo').className = 'previo' + (error ? ' mal' : '');
