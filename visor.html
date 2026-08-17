@@ -382,7 +382,7 @@
 
 <script>
 /* ===== cartera.json horneado, 1 KB ===== */
-const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 17-ago-2026 con el mercado ABIERTO que VUAA N opera dentro de 0.29% alrededor de su valor real, mientras SPYL N cotizaba 3.71% arriba. Ver CLAUDE.md.","_quien":"Los depósitos llevan `quien`: aportan los dos hijos y Marco de vez en cuando. Sin eso no se sabría de quién es el dinero, y son tres personas en una sola cuenta. Las compras NO llevan `quien`: se compra con el bote junto, no con el dinero de alguien en particular.","nombre":"Patrizio y Lucca","fuente":"GBM","instrumento":"VUAA N","movimientos":[{"f":"2026-08-16","t":"dep","monto":50,"quien":"Marco"}]};
+const HORNEADO_CARTERA = {"_":"La cartera REAL. Marco dicta cada movimiento y aquí se captura; `publicar.py` lo hornea dentro de visor.html. Tipos: dep (depósito), compra, venta, ret (retiro). Fechas YYYY-MM-DD. En el SIC son TÍTULOS COMPLETOS, sin fracciones. El precio va en pesos, tal como sale de la app de GBM.","_instrumento":"VUAA N y no SPYL N: se verificó el 17-ago-2026 con el mercado ABIERTO que VUAA N opera dentro de 0.29% alrededor de su valor real, mientras SPYL N cotizaba 3.71% arriba. Ver CLAUDE.md.","_quien":"Los depósitos llevan `quien`: aportan los dos hijos y Marco de vez en cuando. Sin eso no se sabría de quién es el dinero, y son tres personas en una sola cuenta. Las compras NO llevan `quien`: se compra con el bote junto, no con el dinero de alguien en particular.","_comision":"GBM cobra 0.25% + IVA en el SIC. Va DENTRO de la compra (`comision`), no como gasto suelto: es lo que de verdad costó tener ese título. Sin ella el efectivo del visor se desviaría del de GBM en cada compra. La primera: 2,558.00 × 0.25% × 1.16 = 7.42, y GBM cargó 2,565.418 dejando 84.58 disponibles.","nombre":"Patrizio y Lucca","fuente":"GBM","instrumento":"VUAA N","movimientos":[{"f":"2026-08-16","t":"dep","monto":50,"quien":"Marco"},{"f":"2026-08-17","t":"dep","monto":2600,"quien":"Patrizio"},{"f":"2026-08-17","t":"compra","titulos":1,"precio":2558.0,"comision":7.42}]};
 </script>
 <script>
 /* ===== visor.json horneado, 52 KB ===== */
@@ -538,10 +538,15 @@ const Visor = (() => {
     if (Math.abs(mov.titulos - Math.round(mov.titulos)) > 1e-9)
       return 'En el SIC se compran títulos completos, no fracciones.';
 
+    if (mov.comision != null && !(mov.comision >= 0)) return 'La comisión no puede ser negativa.';
+
     if (mov.t === 'compra') {
-      const cuesta = mov.titulos * mov.precio;
+      // Con la comisión adentro: si no, dejaría pasar una compra que en la vida real no cabe.
+      const com = mov.comision || 0;
+      const cuesta = mov.titulos * mov.precio + com;
       if (cuesta > antes.efectivo + 0.005)
-        return `Cuesta ${dinero(cuesta)} y ese día solo había ${dinero(antes.efectivo)}.`;
+        return `Cuesta ${dinero(cuesta)}${com ? ' con comisión' : ''} y ese día solo había ` +
+               `${dinero(antes.efectivo)}.`;
       return null;
     }
 
@@ -577,7 +582,7 @@ const Visor = (() => {
    */
   function calcular(estado, inst, iso, precioHoy) {
     let depositado = 0, retirado = 0, efectivo = 0, titulos = 0, costo = 0;
-    let comprado = 0, vendido = 0;
+    let comprado = 0, vendido = 0, comisiones = 0;
 
     /*
      * ⚠️ DE QUIÉN ES EL DINERO — contabilidad por UNIDADES, como un fondo.
@@ -628,16 +633,29 @@ const Visor = (() => {
       if (m.t === 'dep') { mover(m, 1); depositado += m.monto; efectivo += m.monto; }
       else if (m.t === 'ret') { mover(m, -1); retirado += m.monto; efectivo -= m.monto; }
       else if (m.t === 'compra') {
-        const cuesta = m.titulos * m.precio;
+        /*
+         * ⚠️ LA COMISIÓN VA ADENTRO DEL COSTO, no aparte. GBM cobra 0.25% + IVA en el SIC:
+         * en la primera compra de verdad fueron $7.42 sobre un título de $2,558. Si no se
+         * contara, el efectivo del visor se desviaría de la app de GBM en cada compra y el
+         * visor dejaría de ser confiable — que es lo único que tiene que ser.
+         *
+         * Y adentro del costo, no como gasto suelto, porque eso es: lo que de verdad te costó
+         * tener ese título. Así la ganancia sale contra lo que pagaste completo.
+         */
+        const com = m.comision || 0;
+        const cuesta = m.titulos * m.precio + com;
         efectivo -= cuesta; titulos += m.titulos; costo += cuesta; comprado += cuesta;
+        comisiones += com;
       } else if (m.t === 'venta') {
-        const entra = m.titulos * m.precio;
+        const com = m.comision || 0;
+        const entra = m.titulos * m.precio - com;      // al vender también cobran
         // El costo se baja EN PROPORCIÓN a lo vendido (costo promedio). Si se restara lo que
         // costaron aquellas en particular habría que llevar lotes, y para un niño que compra
         // una vez al mes eso es complejidad sin lección.
         const parte = titulos > 0 ? m.titulos / titulos : 0;
         costo -= costo * parte;
         efectivo += entra; titulos -= m.titulos; vendido += entra;
+        comisiones += com;
       }
     }
 
@@ -663,6 +681,7 @@ const Visor = (() => {
       promedio: titulos > 0 ? costo / titulos : 0,
       comprado,
       vendido,
+      comisiones,          // lo que se ha llevado el bróker, en total
       unidades,
       // Lo que vale una participación hoy. Arranca en 1.00 y sube o baja con la cuenta: es el
       // rendimiento de la cartera limpio de aportaciones, la cifra que un fondo publica.
@@ -1225,7 +1244,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260817-1215';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260817-1223';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
@@ -1477,12 +1496,16 @@ function pintarDinero(foto, iHoy) {
   $('listaMovs').innerHTML = orden.slice().reverse().map((m) => {
     const real = E.movimientos.indexOf(m);
     const [glifo, color] = señales[m.t];
+    // En compras y ventas se enseña el CARGO REAL, con comisión adentro: es lo que salió de
+    // la cuenta, y es el número que tiene que cuadrar con el estado de GBM.
+    const com = m.comision || 0;
     const cuanto = m.t === 'dep' || m.t === 'ret'
       ? Visor.dinero(m.monto)
-      : Visor.dinero(m.titulos * m.precio);
+      : Visor.dinero(m.titulos * m.precio + (m.t === 'compra' ? com : -com));
     const detalle = m.t === 'dep' || m.t === 'ret'
       ? (m.quien ? `<small>${escaparTexto(m.quien)}</small>` : '')
-      : `<small>${m.titulos} × ${Visor.dinero(m.precio)}</small>`;
+      : `<small>${m.titulos} × ${Visor.dinero(m.precio)}${
+          com ? ` + ${Visor.dinero(com)} de comisión` : ''}</small>`;
     return `<div class="fila">
       <div class="señal" style="background:color-mix(in srgb, ${color} 18%, transparent);
            color:${color}">${glifo}</div>
