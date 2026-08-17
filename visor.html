@@ -146,16 +146,21 @@
      Barra de fondo en vez de una rueda: son dos o tres personas, no una cartera; una dona
      para dos rebanadas es adorno. La barra dice la proporción de un vistazo. */
   .aportes { display:flex; flex-direction:column; gap:7px }
-  .aporte { position:relative; display:flex; align-items:baseline; gap:9px;
-            padding:11px 13px; border:1px solid var(--borde); border-radius:13px;
-            background:var(--panel); overflow:hidden }
+  .aporte { position:relative; padding:10px 13px; border:1px solid var(--borde);
+            border-radius:13px; background:var(--panel); overflow:hidden }
   .aporte .barra { position:absolute; inset:0; pointer-events:none }
   .aporte .barra i { display:block; height:100%; background:var(--verde); opacity:.13 }
-  .aporte b { flex:1; font-size:14.5px; font-weight:700; position:relative; min-width:0;
-              overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  .aporte span { font-size:14.5px; font-weight:700; position:relative; white-space:nowrap }
-  .aporte > i { font-style:normal; color:var(--tenue); font-size:12.5px; font-weight:700;
-                position:relative; width:38px; text-align:right; flex:none }
+  .aporte .arriba, .aporte .abajo { position:relative; display:flex; align-items:baseline;
+                                    justify-content:space-between; gap:9px }
+  .aporte .abajo { margin-top:2px }
+  .aporte b { font-size:14.5px; font-weight:700; min-width:0; overflow:hidden;
+              text-overflow:ellipsis; white-space:nowrap }
+  .aporte .arriba span { font-size:14.5px; font-weight:750; white-space:nowrap; flex:none }
+  .aporte .abajo i { font-style:normal; color:var(--tenue); font-size:12px; min-width:0;
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .aporte .abajo em { font-style:normal; font-size:12.5px; font-weight:700; flex:none;
+                      white-space:nowrap }
+  .aporte .abajo em.sube { color:var(--verde) } .aporte .abajo em.baja { color:var(--rojo) }
 
   /* --- vacío --- */
   .vacio { background:var(--panel); border:1px dashed var(--borde); border-radius:16px;
@@ -575,23 +580,53 @@ const Visor = (() => {
     let comprado = 0, vendido = 0;
 
     /*
-     * Quién ha metido cuánto. Son TRES personas en una sola cuenta —los dos hijos y Marco de
-     * vez en cuando— y sin esto no se sabría de quién es el dinero.
+     * ⚠️ DE QUIÉN ES EL DINERO — contabilidad por UNIDADES, como un fondo.
      *
-     * ⚠️ Es un REGISTRO de aportaciones, no un reparto de la ganancia. Repartir en proporción
-     * a lo aportado sería injusto si metieron en momentos distintos: el que entró antes compró
-     * más barato. Para repartir de verdad harían falta unidades, como un fondo. Ver CLAUDE.md.
+     * Son tres personas en una sola cuenta y aportan en momentos distintos. Repartir en
+     * proporción a lo aportado sería INJUSTO: el que entró antes compró más barato, y esa
+     * ventaja es suya, no del bote. Con dos hermanos, alguno lo va a notar.
+     *
+     * Cada aportación compra participaciones al valor de ESE día:
+     *
+     *     unidades compradas = monto / (valor de la cuenta ÷ unidades que ya había)
+     *
+     * La primera aportación define la unidad en 1.00. De ahí en adelante, si el dinero se
+     * duplicó, la misma cantidad compra la mitad de unidades — que es exactamente lo justo.
+     * Cada quien se lleva `sus unidades × valor de la unidad hoy`, sin importar cuándo entró.
+     *
+     * Hay prueba con el caso que lo demuestra: A mete 1,000, el precio se duplica, B mete
+     * 1,000. A se queda con dos tercios y TODA la ganancia; B con un tercio y cero. Repartir
+     * por lo aportado le habría regalado a B la mitad de lo que ganó A.
      */
+    let unidades = 0;
     const porQuien = new Map();
-    const anotar = (quien, monto) => {
+    const deQuien = (quien) => {
       const k = quien || 'Sin nombre';
-      porQuien.set(k, (porQuien.get(k) || 0) + monto);
+      if (!porQuien.has(k)) porQuien.set(k, { aportado: 0, unidades: 0 });
+      return porQuien.get(k);
+    };
+
+    /* El valor de la cuenta justo ANTES de aplicar el movimiento de ese día. */
+    const valorEn = (f) => {
+      const i = inst ? inst.indiceDe(f) : -1;
+      return efectivo + titulos * (i >= 0 ? inst.precioMXN(i) : 0);
+    };
+
+    /* Convierte dinero en participaciones al valor del día. `signo` -1 para retiros. */
+    const mover = (m, signo) => {
+      const antes = valorEn(m.f);
+      const valorUnidad = (unidades > 1e-12 && antes > 1e-12) ? antes / unidades : 1;
+      const u = signo * m.monto / valorUnidad;
+      unidades += u;
+      const q = deQuien(m.quien);
+      q.aportado += signo * m.monto;
+      q.unidades += u;
     };
 
     for (const m of enOrden(estado.movimientos)) {
       if (m.f > iso) break;
-      if (m.t === 'dep') { depositado += m.monto; efectivo += m.monto; anotar(m.quien, m.monto); }
-      else if (m.t === 'ret') { retirado += m.monto; efectivo -= m.monto; anotar(m.quien, -m.monto); }
+      if (m.t === 'dep') { mover(m, 1); depositado += m.monto; efectivo += m.monto; }
+      else if (m.t === 'ret') { mover(m, -1); retirado += m.monto; efectivo -= m.monto; }
       else if (m.t === 'compra') {
         const cuesta = m.titulos * m.precio;
         efectivo -= cuesta; titulos += m.titulos; costo += cuesta; comprado += cuesta;
@@ -628,11 +663,30 @@ const Visor = (() => {
       promedio: titulos > 0 ? costo / titulos : 0,
       comprado,
       vendido,
-      // [{quien, monto, parte}] de mayor a menor. `parte` es su tajada de lo METIDO.
+      unidades,
+      // Lo que vale una participación hoy. Arranca en 1.00 y sube o baja con la cuenta: es el
+      // rendimiento de la cartera limpio de aportaciones, la cifra que un fondo publica.
+      valorUnidad: unidades > 1e-12 ? total / unidades : 1,
+      /*
+       * De quién es el dinero, de mayor a menor. `valor` es lo que le tocaría HOY y `ganancia`
+       * lo que ganó o perdió — cada uno con su propia historia de precios, no con un promedio
+       * del bote. La suma de los `valor` es el total; la de las `parte`, 1. Hay prueba.
+       */
       quienes: [...porQuien.entries()]
-        .map(([quien, monto]) => ({ quien, monto,
-          parte: (depositado - retirado) > 0 ? monto / (depositado - retirado) : 0 }))
-        .sort((a, b) => b.monto - a.monto),
+        .map(([quien, q]) => {
+          const vu = unidades > 1e-12 ? total / unidades : 1;
+          const valor = q.unidades * vu;
+          return {
+            quien,
+            monto: q.aportado,          // lo que puso, neto de retiros
+            unidades: q.unidades,
+            parte: unidades > 1e-12 ? q.unidades / unidades : 0,
+            valor,
+            ganancia: valor - q.aportado,
+            gananciaPct: q.aportado > 0 ? ((valor / q.aportado) - 1) * 100 : 0,
+          };
+        })
+        .sort((a, b) => b.valor - a.valor),
       // Contra lo METIDO, nunca contra el primer depósito: si no, meter dinero se vería como
       // ganancia y sería mentira. Misma regla que en StocKids.
       ganancia: total - metido,
@@ -1171,7 +1225,7 @@ const Grafica = (() => {
 <script>
 'use strict';
 
-const VS_VER = '20260817-1209';    // sello, igual que el SK_VER de StocKids
+const VS_VER = '20260817-1215';    // sello, igual que el SK_VER de StocKids
 
 /* De regreso al simulador. ⚠️ Mismo trato que `A_VISOR` allá: en desarrollo están en
    carpetas distintas y publicados quedan lado a lado, así que `publicar.py` reescribe esta
@@ -1361,15 +1415,26 @@ function pintarDinero(foto, iHoy) {
 
   /* --- quién ha puesto qué ---
      Son tres personas en una sola cuenta. Sin esto no se sabe de quién es el dinero. */
-  const qs = foto.quienes.filter(q => Math.abs(q.monto) > 0.005);
+  /*
+   * Cuánto es de cada quien, por UNIDADES: cada aportación compró participaciones al valor de
+   * ese día. Por eso aquí puede salir que alguien tiene MÁS de lo que puso y otro exactamente
+   * lo que puso — el que entró antes compró más barato, y esa ventaja es suya.
+   */
+  const qs = foto.quienes.filter(q => Math.abs(q.monto) > 0.005 || Math.abs(q.valor) > 0.005);
   $('quienes').innerHTML = qs.length ? `
-    <div class="titulo">Quién ha puesto</div>
+    <div class="titulo">De quién es</div>
     <div class="aportes">${qs.map(q => `
       <div class="aporte">
         <div class="barra"><i style="width:${(q.parte * 100).toFixed(1)}%"></i></div>
-        <b>${escaparTexto(q.quien)}</b>
-        <span>${Visor.dinero(q.monto)}<em class="moneda">${MONEDA}</em></span>
-        <i>${(q.parte * 100).toFixed(0)}%</i>
+        <div class="arriba">
+          <b>${escaparTexto(q.quien)}</b>
+          <span>${Visor.dinero(q.valor)}<em class="moneda">${MONEDA}</em></span>
+        </div>
+        <div class="abajo">
+          <i>puso ${Visor.dinero(q.monto)} · ${(q.parte * 100).toFixed(0)}%</i>
+          <em class="${q.ganancia >= 0 ? 'sube' : 'baja'}">${
+            q.ganancia >= 0 ? '+' : '−'}${Visor.dinero(Math.abs(q.ganancia))}</em>
+        </div>
       </div>`).join('')}</div>` : '';
 
   /* --- vacío --- */
